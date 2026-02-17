@@ -1,7 +1,5 @@
---[[
-    Roblox AI CLI v2.0.0
-    用法: loadstring(game:HttpGet("https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main/main.lua"))()
-]]
+-- Roblox AI CLI v2.0.0
+-- 用法: loadstring(game:HttpGet("https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main/main.lua"))()
 
 local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
 
@@ -215,24 +213,20 @@ local function addHistory(query, response)
     saveHistory()
 end
 
--- 初始化
 function App:init()
     if self.ready then return end
     
     print("[AI CLI] v" .. self.ver .. " 启动中...")
     
-    -- 检测执行器
     self.exec = detectExecutor()
     print("[AI CLI] 执行器: " .. self.exec.name)
     
-    -- 获取HTTP函数
     httpGet = getHttpFunc(self.exec)
     if not httpGet then
         warn("[AI CLI] 错误：无法获取HTTP函数")
         return
     end
     
-    -- 初始化全局表
     _G.AIAnalyzer = {Executor = self.exec}
     
     -- 加载模块
@@ -257,12 +251,10 @@ function App:init()
     local ai = loadModule("modules/ai_client.lua")
     if ai then _G.AIAnalyzer.AIClient = ai; print("[AI CLI] AIClient OK") end
     
-    -- 加载配置
     local cfg = _G.AIAnalyzer.Config
     if cfg and cfg.load then cfg:load() end
     loadHistory()
     
-    -- 创建UI
     self:setupUI()
     self:bindEvents()
     self:setupCallbacks()
@@ -273,7 +265,6 @@ function App:init()
     self:showWelcome()
 end
 
--- UI创建
 function App:setupUI()
     local ui = _G.AIAnalyzer.UI
     
@@ -324,7 +315,6 @@ function App:loadSettings()
     end
 end
 
--- 事件绑定
 function App:bindEvents()
     local ui = _G.AIAnalyzer.UI
     local cfg = _G.AIAnalyzer.Config
@@ -345,7 +335,6 @@ function App:bindEvents()
         self:testConnection()
     end)
     
-    -- Provider切换
     ui.providerButtons.deepseek.MouseButton1Click:Connect(function()
         self:switchProvider("DeepSeek")
     end)
@@ -354,7 +343,6 @@ function App:bindEvents()
         self:switchProvider("OpenAI")
     end)
     
-    -- 执行前确认开关
     ui.confirmToggle.MouseButton1Click:Connect(function()
         if cfg then
             cfg.Settings.confirmBeforeExecute = not cfg.Settings.confirmBeforeExecute
@@ -362,7 +350,6 @@ function App:bindEvents()
         end
     end)
     
-    -- 历史记录操作
     ui.clearHistoryBtn.MouseButton1Click:Connect(function()
         self:clearHistory()
     end)
@@ -371,7 +358,6 @@ function App:bindEvents()
         self:exportHistory()
     end)
     
-    -- 资源扫描
     ui.scanBtn.MouseButton1Click:Connect(function()
         self:scanResources()
     end)
@@ -381,17 +367,14 @@ function App:bindEvents()
     end)
 end
 
--- 设置UI回调
 function App:setupCallbacks()
     local ui = _G.AIAnalyzer.UI
     
-    -- 执行脚本回调
     ui:onExecute(function(code, frame)
         local Config = _G.AIAnalyzer.Config
         local confirmBeforeExecute = Config and Config.Settings.confirmBeforeExecute
         
         if confirmBeforeExecute then
-            -- 简单确认（直接执行）
             local success, err = execScript(code)
             if success then
                 self:addSystemMessage("✅ 脚本执行成功")
@@ -408,7 +391,6 @@ function App:setupCallbacks()
         end
     end)
     
-    -- 保存脚本回调
     ui:onSave(function(code, frame)
         local Config = _G.AIAnalyzer.Config
         local timestamp = os.date("%Y%m%d_%H%M%S")
@@ -423,7 +405,6 @@ function App:setupCallbacks()
     end)
 end
 
--- ==================== 消息处理 ====================
 function App:addSystemMessage(text)
     local ui = _G.AIAnalyzer.UI
     ui:addMessage("ℹ️ " .. text, false)
@@ -566,8 +547,7 @@ function App:exportHistory()
         end
     end
 end
-
--- ==================== AI交互 ====================
+-- AI交互
 function App:sendToAI(query)
     local ui = _G.AIAnalyzer.UI
     local AIClient = _G.AIAnalyzer.AIClient
@@ -619,7 +599,7 @@ function App:sendToAI(query)
     end)
 end
 
--- ==================== 资源管理 ====================
+-- 资源管理
 function App:scanResources()
     local ui = _G.AIAnalyzer.UI
     local Scanner = _G.AIAnalyzer.Scanner
@@ -674,51 +654,109 @@ end
 
 function App:analyzeResource(resource)
     local ui = _G.AIAnalyzer.UI
-    ui:showView("chat")
+    local Reader = _G.AIAnalyzer.Reader
     
-    local prompt = string.format(
-        "请分析这个游戏资源：\n名称: %s\n类型: %s\n路径: %s\n\n请解释它的用途和使用方法，如果可能给出示例代码。",
-        resource.name, resource.className, resource.path
-    )
-    
-    ui.inputBox.Text = prompt
-    self:sendMessage()
+    -- 显示弹窗让用户选择操作
+    ui:showResourceDialog(resource, {
+        analyze = function()
+            ui:showView("chat")
+            local prompt = string.format(
+                "请分析这个游戏资源：\n名称: %s\n类型: %s\n路径: %s\n\n请解释它的用途和使用方法，如果可能给出示例代码。",
+                resource.name, resource.className, resource.path
+            )
+            ui.inputBox.Text = prompt
+            self:sendMessage()
+        end,
+        generateCode = function()
+            ui:showView("chat")
+            local prompt = string.format(
+                "请为这个 Remote 生成调用代码：\n名称: %s\n类型: %s\n路径: %s\n\n请给出完整的调用示例代码，包括参数说明。",
+                resource.name, resource.className, resource.path
+            )
+            ui.inputBox.Text = prompt
+            self:sendMessage()
+        end,
+        viewSource = function()
+            -- 查看源码
+            if Reader and Reader:canDecompile() then
+                local obj = game:FindFirstChild(resource.path, true)
+                if obj then
+                    local source = Reader:readScript(obj)
+                    if source then
+                        ui:showView("chat")
+                        local prompt = string.format(
+                            "脚本源码 (%s)：\n```\n%s\n```\n\n请分析这段代码的功能。",
+                            resource.name, source.source or source
+                        )
+                        ui.inputBox.Text = prompt
+                        self:sendMessage()
+                        return
+                    end
+                end
+            end
+            ui:addMessage("⚠️ 无法读取该资源源码", false)
+        end
+    })
 end
 
 function App:analyzeScript(scriptInfo)
     local ui = _G.AIAnalyzer.UI
     local Reader = _G.AIAnalyzer.Reader
     
-    ui:showView("chat")
-    
-    if Reader and Reader:canDecompile() then
-        local scripts = Reader:getAllScripts()
-        for _, s in ipairs(scripts) do
-            if s.Name == scriptInfo.name then
-                local scriptData = Reader:readScript(s)
-                if scriptData then
-                    local prompt = string.format(
-                        "请分析这个脚本：\n名称: %s\n类型: %s\n路径: %s\n\n源码:\n```\n%s\n```",
-                        scriptData.name, scriptData.className, scriptData.path,
-                        scriptData.source:sub(1, 3000)
-                    )
-                    ui.inputBox.Text = prompt
-                    self:sendMessage()
-                    return
+    -- 显示弹窗让用户选择操作
+    ui:showResourceDialog(scriptInfo, {
+        analyze = function()
+            ui:showView("chat")
+            
+            if Reader and Reader:canDecompile() then
+                local scripts = Reader:getAllScripts()
+                for _, s in ipairs(scripts) do
+                    if s.Name == scriptInfo.name then
+                        local scriptData = Reader:readScript(s)
+                        if scriptData then
+                            local prompt = string.format(
+                                "请分析这个脚本：\n名称: %s\n类型: %s\n路径: %s\n\n源码:\n```\n%s\n```",
+                                scriptData.name, scriptData.className, scriptData.path,
+                                scriptData.source:sub(1, 3000)
+                            )
+                            ui.inputBox.Text = prompt
+                            self:sendMessage()
+                            return
+                        end
+                    end
                 end
             end
+            
+            local prompt = string.format(
+                "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s\n\n（无法读取源码）",
+                scriptInfo.name, scriptInfo.className, scriptInfo.path
+            )
+            ui.inputBox.Text = prompt
+            self:sendMessage()
+        end,
+        generateCode = function()
+            ui:showView("chat")
+            ui:addMessage("⚠️ 脚本类型资源不支持生成调用代码", false)
+        end,
+        viewSource = function()
+            if Reader and Reader:canDecompile() then
+                local obj = game:FindFirstChild(scriptInfo.path, true)
+                if obj then
+                    local source = Reader:readScript(obj)
+                    if source then
+                        ui:showView("chat")
+                        ui:addMessage(string.format("📄 %s 源码:\n```\n%s\n```", 
+                            scriptInfo.name, source.source or source), false)
+                        return
+                    end
+                end
+            end
+            ui:addMessage("⚠️ 无法读取该脚本源码", false)
         end
-    end
-    
-    local prompt = string.format(
-        "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s\n\n（无法读取源码）",
-        scriptInfo.name, scriptInfo.className, scriptInfo.path
-    )
-    ui.inputBox.Text = prompt
-    self:sendMessage()
+    })
 end
 
--- ==================== 设置管理 ====================
+-- 设置管理
 function App:saveSettings()
     local ui = _G.AIAnalyzer.UI
     local Config = _G.AIAnalyzer.Config

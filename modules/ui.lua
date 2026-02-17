@@ -1,17 +1,11 @@
---[[
-    Roblox AI Resource Analyzer - UI Module
-    Version: 1.0.0
-    
-    图形用户界面模块 - 自适应屏幕尺寸
-]]
-
+-- UI模块 - Roblox AI Resource Analyzer
 local UI = {}
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
--- UI主题配置
+-- 主题配色
 UI.Theme = {
     background = Color3.fromRGB(25, 25, 30),
     backgroundSecondary = Color3.fromRGB(35, 35, 42),
@@ -27,44 +21,30 @@ UI.Theme = {
     border = Color3.fromRGB(60, 60, 70)
 }
 
--- 窗口尺寸配置
+-- 窗口配置
 UI.WindowConfig = {
-    -- 窗口占屏幕的比例
-    widthRatio = 0.85,      -- 宽度占屏幕85%
-    heightRatio = 0.75,     -- 高度占屏幕75%
-    
-    -- 最小尺寸限制
+    widthRatio = 0.85,
+    heightRatio = 0.75,
     minWidth = 450,
     minHeight = 350,
-    
-    -- 最大尺寸限制
     maxWidth = 900,
     maxHeight = 700,
-    
-    -- 侧边栏配置
     sidebarMinWidth = 130,
     sidebarMaxWidth = 180,
-    sidebarRatio = 0.22,    -- 侧边栏占窗口22%
-    
-    -- 标题栏高度
+    sidebarRatio = 0.22,
     titleBarHeight = 45,
-    
-    -- 是否最小化
     isMinimized = false,
-    
-    -- 悬浮按钮配置
     floatBtnSize = 50,
     floatBtnMargin = 20
 }
 
--- 创建圆角
+-- 辅助函数
 local function createCorner(parent, radius)
     local corner = Instance.new("UICorner", parent)
     corner.CornerRadius = UDim.new(0, radius or 8)
     return corner
 end
 
--- 创建内边距
 local function createPadding(parent, padding)
     local pad = Instance.new("UIPadding", parent)
     pad.PaddingTop = UDim.new(0, padding)
@@ -74,34 +54,28 @@ local function createPadding(parent, padding)
     return pad
 end
 
--- 获取屏幕尺寸
 function UI:getScreenSize()
     local viewportSize = workspace.CurrentCamera.ViewportSize
     return viewportSize.X, viewportSize.Y
 end
 
--- 计算自适应窗口尺寸
+-- 窗口尺寸计算
 function UI:calculateWindowSize()
     local screenW, screenH = self:getScreenSize()
-    
     local config = self.WindowConfig
     
-    -- 计算窗口尺寸
     local winW = math.floor(screenW * config.widthRatio)
     local winH = math.floor(screenH * config.heightRatio)
     
-    -- 应用限制
     winW = math.clamp(winW, config.minWidth, config.maxWidth)
     winH = math.clamp(winH, config.minHeight, config.maxHeight)
     
     return winW, winH
 end
 
--- 计算侧边栏宽度
 function UI:calculateSidebarWidth()
     local winW = self.currentWidth or self:calculateWindowSize()
     local config = self.WindowConfig
-    
     local sidebarW = math.floor(winW * config.sidebarRatio)
     return math.clamp(sidebarW, config.sidebarMinWidth, config.sidebarMaxWidth)
 end
@@ -583,44 +557,51 @@ function UI:createChatView()
     return chatFrame
 end
 
--- 解析文本中的代码块
-local function parseCodeBlocks(text)
+-- Markdown解析（主要处理代码块）
+local function parseMarkdown(text)
     local blocks = {}
-    local lastIndex = 1
-    local codePattern = "```(%w*)\n(.-)```"
+    local pos = 1
+    local len = #text
     
-    for lang, code in text:gmatch(codePattern) do
-        local startPos, endPos = text:find("```" .. lang .. "\n.-```")
-        if startPos and startPos > lastIndex then
-            -- 添加代码块前的文本
-            table.insert(blocks, {
-                type = "text",
-                content = text:sub(lastIndex, startPos - 1)
-            })
+    while pos <= len do
+        local codeStart = text:find("```", pos)
+        
+        if codeStart then
+            -- 代码块前的文本
+            if codeStart > pos then
+                local beforeText = text:sub(pos, codeStart - 1)
+                if beforeText:match("%S") then
+                    table.insert(blocks, {type = "text", content = beforeText})
+                end
+            end
+            
+            -- 提取语言标识
+            local afterStart = text:sub(codeStart + 3)
+            local langEnd = afterStart:find("\n") or 1
+            local lang = afterStart:sub(1, langEnd - 1):match("^%s*(%w*)%s*$") or ""
+            
+            -- 提取代码内容
+            local codeContentStart = codeStart + 3 + langEnd
+            local codeEnd = text:find("```", codeContentStart)
+            
+            if codeEnd then
+                local code = text:sub(codeContentStart, codeEnd - 1)
+                table.insert(blocks, {type = "code", language = lang, content = code})
+                pos = codeEnd + 3
+            else
+                table.insert(blocks, {type = "text", content = text:sub(pos)})
+                break
+            end
+        else
+            -- 剩余文本
+            local remaining = text:sub(pos)
+            if remaining:match("%S") then
+                table.insert(blocks, {type = "text", content = remaining})
+            end
+            break
         end
-        
-        -- 添加代码块
-        table.insert(blocks, {
-            type = "code",
-            language = lang or "lua",
-            content = code
-        })
-        
-        lastIndex = (endPos or startPos) + 1
     end
     
-    -- 添加剩余文本
-    if lastIndex <= #text then
-        local remaining = text:sub(lastIndex)
-        if remaining:match("%S") then
-            table.insert(blocks, {
-                type = "text",
-                content = remaining
-            })
-        end
-    end
-    
-    -- 如果没有代码块，返回整个文本
     if #blocks == 0 then
         return {{type = "text", content = text}}
     end
@@ -628,7 +609,7 @@ local function parseCodeBlocks(text)
     return blocks
 end
 
--- 设置剪贴板（兼容不同执行器）
+-- 剪贴板（兼容多执行器）
 local function setClipboard(text)
     if setclipboard then
         setclipboard(text)
@@ -643,10 +624,8 @@ local function setClipboard(text)
     return false
 end
 
--- 消息回调存储
 UI.messageCallbacks = {}
 
--- 注册回调
 function UI:onExecute(callback)
     self.messageCallbacks.onExecute = callback
 end
@@ -655,9 +634,9 @@ function UI:onSave(callback)
     self.messageCallbacks.onSave = callback
 end
 
--- 添加消息气泡（支持代码块）
+-- 添加消息气泡（支持Markdown）
 function UI:addMessage(text, isUser)
-    local blocks = parseCodeBlocks(text)
+    local blocks = parseMarkdown(text)
     
     local msgFrame = Instance.new("Frame", self.messageArea)
     msgFrame.Size = UDim2.new(1, -12, 0, 0)
@@ -1110,43 +1089,47 @@ function UI:updateConfirmToggle(enabled)
     end
 end
 
--- 创建资源浏览器
+-- 资源浏览器
 function UI:createResourceView()
     local resourceFrame = Instance.new("Frame", self.mainContent)
     resourceFrame.Name = "ResourceView"
     resourceFrame.Size = UDim2.new(1, 0, 1, 0)
     resourceFrame.BackgroundTransparency = 1
     
-    -- 搜索框容器
-    local searchContainer = Instance.new("Frame", resourceFrame)
-    searchContainer.Size = UDim2.new(1, -16, 0, 32)
-    searchContainer.Position = UDim2.new(0, 8, 0, 8)
-    searchContainer.BackgroundTransparency = 1
+    local toolbar = Instance.new("Frame", resourceFrame)
+    toolbar.Name = "Toolbar"
+    toolbar.Size = UDim2.new(1, -16, 0, 32)
+    toolbar.Position = UDim2.new(0, 8, 0, 8)
+    toolbar.BackgroundTransparency = 1
     
-    -- 搜索框
-    local searchBox = Instance.new("TextBox", searchContainer)
+    local searchBox = Instance.new("TextBox", toolbar)
     searchBox.Name = "SearchBox"
-    searchBox.Size = UDim2.new(1, -90, 1, 0)
+    searchBox.Size = UDim2.new(1, -180, 1, 0)
     searchBox.BackgroundColor3 = self.Theme.backgroundTertiary
     searchBox.BorderSizePixel = 0
     searchBox.PlaceholderText = "搜索资源..."
     searchBox.PlaceholderColor3 = self.Theme.textMuted
     searchBox.Text = ""
     searchBox.TextColor3 = self.Theme.text
-    searchBox.TextSize = 13
+    searchBox.TextSize = 12
     searchBox.Font = Enum.Font.Gotham
+    searchBox.TextXAlignment = Enum.TextXAlignment.Left
     createCorner(searchBox, 6)
     
-    -- 扫描按钮
-    local scanBtn = Instance.new("TextButton", searchContainer)
+    local filterBtns = Instance.new("Frame", toolbar)
+    filterBtns.Size = UDim2.new(0, 90, 1, 0)
+    filterBtns.Position = UDim2.new(1, -90, 0, 0)
+    filterBtns.BackgroundTransparency = 1
+    
+    local scanBtn = Instance.new("TextButton", toolbar)
     scanBtn.Name = "ScanButton"
-    scanBtn.Size = UDim2.new(0, 80, 1, 0)
-    scanBtn.Position = UDim2.new(1, -80, 0, 0)
+    scanBtn.Size = UDim2.new(0, 60, 1, 0)
+    scanBtn.Position = UDim2.new(1, -160, 0, 0)
     scanBtn.BackgroundColor3 = self.Theme.accent
     scanBtn.BorderSizePixel = 0
     scanBtn.Text = "扫描"
     scanBtn.TextColor3 = Color3.new(1, 1, 1)
-    scanBtn.TextSize = 13
+    scanBtn.TextSize = 12
     scanBtn.Font = Enum.Font.GothamBold
     createCorner(scanBtn, 6)
     
@@ -1164,7 +1147,14 @@ function UI:createResourceView()
     createCorner(resourceList, 8)
     
     local listLayout = Instance.new("UIListLayout", resourceList)
-    listLayout.Padding = UDim.new(0, 3)
+    listLayout.Padding = UDim.new(0, 2)
+    
+    -- 资源分类数据
+    self.resourceCategories = {
+        remotes = {},
+        scripts = {},
+        others = {}
+    }
     
     self.resourceView = resourceFrame
     self.resourceSearchBox = searchBox
@@ -1174,21 +1164,163 @@ function UI:createResourceView()
     return resourceFrame
 end
 
--- 添加资源项
+-- 添加分类标题
+function UI:addCategoryHeader(title, count)
+    local header = Instance.new("TextLabel", self.resourceList)
+    header.Size = UDim2.new(1, -8, 0, 24)
+    header.BackgroundColor3 = self.Theme.backgroundSecondary
+    header.BorderSizePixel = 0
+    header.Text = "  " .. title .. " (" .. count .. ")"
+    header.TextColor3 = self.Theme.accent
+    header.TextSize = 11
+    header.Font = Enum.Font.GothamBold
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    createCorner(header, 4)
+    return header
+end
+
+-- 资源操作弹窗
+function UI:showResourceDialog(resource, callbacks)
+    local overlay = Instance.new("Frame", self.screenGui)
+    overlay.Name = "ResourceDialogOverlay"
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+    overlay.BackgroundTransparency = 0.5
+    overlay.ZIndex = 200
+    
+    local dialog = Instance.new("Frame", overlay)
+    dialog.Name = "Dialog"
+    dialog.Size = UDim2.new(0, 300, 0, 200)
+    dialog.Position = UDim2.new(0.5, -150, 0.5, -100)
+    dialog.BackgroundColor3 = self.Theme.background
+    dialog.BorderSizePixel = 0
+    dialog.ZIndex = 201
+    createCorner(dialog, 12)
+    
+    local stroke = Instance.new("UIStroke", dialog)
+    stroke.Color = self.Theme.border
+    stroke.Thickness = 1
+    
+    local title = Instance.new("TextLabel", dialog)
+    title.Size = UDim2.new(1, -20, 0, 30)
+    title.Position = UDim2.new(0, 10, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = resource.name
+    title.TextColor3 = self.Theme.text
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    local info = Instance.new("TextLabel", dialog)
+    info.Size = UDim2.new(1, -20, 0, 20)
+    info.Position = UDim2.new(0, 10, 0, 40)
+    info.BackgroundTransparency = 1
+    info.Text = "类型: " .. resource.className .. " | 路径: " .. resource.path
+    info.TextColor3 = self.Theme.textSecondary
+    info.TextSize = 11
+    info.Font = Enum.Font.Gotham
+    info.TextXAlignment = Enum.TextXAlignment.Left
+    info.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    local btnContainer = Instance.new("Frame", dialog)
+    btnContainer.Size = UDim2.new(1, -20, 0, 100)
+    btnContainer.Position = UDim2.new(0, 10, 0, 70)
+    btnContainer.BackgroundTransparency = 1
+    
+    local btnY = 0
+    local function addBtn(text, callback, color)
+        local btn = Instance.new("TextButton", btnContainer)
+        btn.Size = UDim2.new(1, 0, 0, 28)
+        btn.Position = UDim2.new(0, 0, 0, btnY)
+        btn.BackgroundColor3 = color or self.Theme.accent
+        btn.BorderSizePixel = 0
+        btn.Text = text
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.TextSize = 12
+        btn.Font = Enum.Font.GothamBold
+        createCorner(btn, 6)
+        
+        btn.MouseButton1Click:Connect(function()
+            overlay:Destroy()
+            if callback then callback() end
+        end)
+        
+        btnY = btnY + 32
+    end
+    
+    -- 根据类型显示不同操作
+    addBtn("📝 让AI分析此资源", callbacks.analyze, self.Theme.accent)
+    
+    if resource.className:find("Remote") then
+        addBtn("🔧 生成调用代码", callbacks.generateCode, self.Theme.success)
+    end
+    
+    if resource.className:find("Script") then
+        addBtn("📄 查看源码", callbacks.viewSource, Color3.fromRGB(100, 100, 200))
+    end
+    
+    local closeBtn = Instance.new("TextButton", dialog)
+    closeBtn.Size = UDim2.new(0, 24, 0, 24)
+    closeBtn.Position = UDim2.new(1, -30, 0, 8)
+    closeBtn.BackgroundColor3 = self.Theme.error
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.new(1, 1, 1)
+    closeBtn.TextSize = 12
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.ZIndex = 202
+    createCorner(closeBtn, 4)
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+    end)
+    
+    -- 点击背景关闭
+    overlay.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            overlay:Destroy()
+        end
+    end)
+    
+    return dialog
+end
+
+-- 资源列表项
 function UI:addResourceItem(name, className, path, onClick)
+    local typeColor = self.Theme.textSecondary
+    if className:find("Remote") then
+        typeColor = Color3.fromRGB(255, 180, 100)
+    elseif className:find("Script") then
+        typeColor = Color3.fromRGB(100, 200, 255)
+    end
+    
     local item = Instance.new("TextButton", self.resourceList)
     item.Size = UDim2.new(1, -8, 0, 26)
-    item.Position = UDim2.new(0, 4, 0, 0)
     item.BackgroundColor3 = self.Theme.backgroundSecondary
     item.BorderSizePixel = 0
     item.Text = ""
     createCorner(item, 4)
     
+    -- 类型图标
+    local icon = "📄"
+    if className:find("RemoteEvent") then
+        icon = "📤"
+    elseif className:find("RemoteFunction") then
+        icon = "📥"
+    elseif className:find("LocalScript") then
+        icon = "📜"
+    elseif className:find("ModuleScript") then
+        icon = "📦"
+    elseif className:find("Script") then
+        icon = "📝"
+    end
+    
     local nameText = Instance.new("TextLabel", item)
     nameText.Size = UDim2.new(0.5, 0, 1, 0)
     nameText.Position = UDim2.new(0, 8, 0, 0)
     nameText.BackgroundTransparency = 1
-    nameText.Text = name
+    nameText.Text = icon .. " " .. name
     nameText.TextColor3 = self.Theme.text
     nameText.TextSize = 12
     nameText.Font = Enum.Font.GothamSemibold
@@ -1196,14 +1328,15 @@ function UI:addResourceItem(name, className, path, onClick)
     nameText.TextTruncate = Enum.TextTruncate.AtEnd
     
     local classText = Instance.new("TextLabel", item)
-    classText.Size = UDim2.new(0.35, 0, 1, 0)
-    classText.Position = UDim2.new(0.5, 0, 0, 0)
+    classText.Size = UDim2.new(0.4, 0, 1, 0)
+    classText.Position = UDim2.new(0.55, 0, 0, 0)
     classText.BackgroundTransparency = 1
     classText.Text = className
-    classText.TextColor3 = self.Theme.textSecondary
-    classText.TextSize = 11
+    classText.TextColor3 = typeColor
+    classText.TextSize = 10
     classText.Font = Enum.Font.Gotham
     classText.TextXAlignment = Enum.TextXAlignment.Left
+    classText.TextTruncate = Enum.TextTruncate.AtEnd
     
     item.MouseButton1Click:Connect(onClick)
     
