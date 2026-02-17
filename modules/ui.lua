@@ -583,8 +583,82 @@ function UI:createChatView()
     return chatFrame
 end
 
--- 添加消息气泡
+-- 解析文本中的代码块
+local function parseCodeBlocks(text)
+    local blocks = {}
+    local lastIndex = 1
+    local codePattern = "```(%w*)\n(.-)```"
+    
+    for lang, code in text:gmatch(codePattern) do
+        local startPos, endPos = text:find("```" .. lang .. "\n.-```")
+        if startPos and startPos > lastIndex then
+            -- 添加代码块前的文本
+            table.insert(blocks, {
+                type = "text",
+                content = text:sub(lastIndex, startPos - 1)
+            })
+        end
+        
+        -- 添加代码块
+        table.insert(blocks, {
+            type = "code",
+            language = lang or "lua",
+            content = code
+        })
+        
+        lastIndex = (endPos or startPos) + 1
+    end
+    
+    -- 添加剩余文本
+    if lastIndex <= #text then
+        local remaining = text:sub(lastIndex)
+        if remaining:match("%S") then
+            table.insert(blocks, {
+                type = "text",
+                content = remaining
+            })
+        end
+    end
+    
+    -- 如果没有代码块，返回整个文本
+    if #blocks == 0 then
+        return {{type = "text", content = text}}
+    end
+    
+    return blocks
+end
+
+-- 设置剪贴板（兼容不同执行器）
+local function setClipboard(text)
+    if setclipboard then
+        setclipboard(text)
+        return true
+    elseif syn and syn.write_clipboard then
+        syn.write_clipboard(text)
+        return true
+    elseif toclipboard then
+        toclipboard(text)
+        return true
+    end
+    return false
+end
+
+-- 消息回调存储
+UI.messageCallbacks = {}
+
+-- 注册回调
+function UI:onExecute(callback)
+    self.messageCallbacks.onExecute = callback
+end
+
+function UI:onSave(callback)
+    self.messageCallbacks.onSave = callback
+end
+
+-- 添加消息气泡（支持代码块）
 function UI:addMessage(text, isUser)
+    local blocks = parseCodeBlocks(text)
+    
     local msgFrame = Instance.new("Frame", self.messageArea)
     msgFrame.Size = UDim2.new(1, -12, 0, 0)
     msgFrame.Position = UDim2.new(0, 6, 0, 0)
@@ -592,17 +666,160 @@ function UI:addMessage(text, isUser)
     msgFrame.BorderSizePixel = 0
     createCorner(msgFrame, 6)
     
-    local msgText = Instance.new("TextLabel", msgFrame)
-    msgText.Size = UDim2.new(1, -12, 1, 0)
-    msgText.Position = UDim2.new(0, 6, 0, 0)
-    msgText.BackgroundTransparency = 1
-    msgText.Text = text
-    msgText.TextColor3 = isUser and Color3.new(1, 1, 1) or self.Theme.text
-    msgText.TextSize = 13
-    msgText.Font = Enum.Font.Gotham
-    msgText.TextWrapped = true
-    msgText.TextXAlignment = Enum.TextXAlignment.Left
-    msgText.AutomaticSize = Enum.AutomaticSize.Y
+    -- 内容容器
+    local container = Instance.new("Frame", msgFrame)
+    container.Name = "Container"
+    container.Size = UDim2.new(1, -12, 0, 0)
+    container.Position = UDim2.new(0, 6, 0, 6)
+    container.BackgroundTransparency = 1
+    container.AutomaticSize = Enum.AutomaticSize.Y
+    
+    local listLayout = Instance.new("UIListLayout", container)
+    listLayout.Padding = UDim.new(0, 6)
+    
+    -- 存储所有代码块用于操作
+    local codeBlocks = {}
+    
+    for _, block in ipairs(blocks) do
+        if block.type == "text" and block.content:match("%S") then
+            -- 文本块
+            local textLabel = Instance.new("TextLabel", container)
+            textLabel.Size = UDim2.new(1, 0, 0, 0)
+            textLabel.BackgroundTransparency = 1
+            textLabel.Text = block.content
+            textLabel.TextColor3 = isUser and Color3.new(1, 1, 1) or self.Theme.text
+            textLabel.TextSize = 13
+            textLabel.Font = Enum.Font.Gotham
+            textLabel.TextWrapped = true
+            textLabel.TextXAlignment = Enum.TextXAlignment.Left
+            textLabel.AutomaticSize = Enum.AutomaticSize.Y
+        elseif block.type == "code" then
+            -- 代码块
+            local codeFrame = Instance.new("Frame", container)
+            codeFrame.Size = UDim2.new(1, 0, 0, 0)
+            codeFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+            codeFrame.BorderSizePixel = 0
+            codeFrame.AutomaticSize = Enum.AutomaticSize.Y
+            createCorner(codeFrame, 6)
+            
+            -- 代码头部（语言标签 + 按钮）
+            local codeHeader = Instance.new("Frame", codeFrame)
+            codeHeader.Name = "Header"
+            codeHeader.Size = UDim2.new(1, 0, 0, 28)
+            codeHeader.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+            codeHeader.BorderSizePixel = 0
+            createCorner(codeHeader, 6)
+            
+            -- 语言标签
+            local langLabel = Instance.new("TextLabel", codeHeader)
+            langLabel.Size = UDim2.new(0, 60, 1, 0)
+            langLabel.Position = UDim2.new(0, 8, 0, 0)
+            langLabel.BackgroundTransparency = 1
+            langLabel.Text = block.language:upper()
+            langLabel.TextColor3 = self.Theme.accent
+            langLabel.TextSize = 11
+            langLabel.Font = Enum.Font.GothamBold
+            langLabel.TextXAlignment = Enum.TextXAlignment.Left
+            
+            -- 按钮容器
+            local btnContainer = Instance.new("Frame", codeHeader)
+            btnContainer.Size = UDim2.new(0, 180, 1, 0)
+            btnContainer.Position = UDim2.new(1, -185, 0, 0)
+            btnContainer.BackgroundTransparency = 1
+            
+            -- 复制按钮
+            local copyBtn = Instance.new("TextButton", btnContainer)
+            copyBtn.Name = "CopyBtn"
+            copyBtn.Size = UDim2.new(0, 55, 0, 22)
+            copyBtn.Position = UDim2.new(0, 0, 0.5, -11)
+            copyBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            copyBtn.BorderSizePixel = 0
+            copyBtn.Text = "复制"
+            copyBtn.TextColor3 = self.Theme.text
+            copyBtn.TextSize = 11
+            copyBtn.Font = Enum.Font.Gotham
+            createCorner(copyBtn, 4)
+            
+            -- 执行按钮
+            local execBtn = Instance.new("TextButton", btnContainer)
+            execBtn.Name = "ExecBtn"
+            execBtn.Size = UDim2.new(0, 55, 0, 22)
+            execBtn.Position = UDim2.new(0, 60, 0.5, -11)
+            execBtn.BackgroundColor3 = self.Theme.success
+            execBtn.BorderSizePixel = 0
+            execBtn.Text = "执行"
+            execBtn.TextColor3 = Color3.new(1, 1, 1)
+            execBtn.TextSize = 11
+            execBtn.Font = Enum.Font.GothamBold
+            createCorner(execBtn, 4)
+            
+            -- 保存按钮
+            local saveBtn = Instance.new("TextButton", btnContainer)
+            saveBtn.Name = "SaveBtn"
+            saveBtn.Size = UDim2.new(0, 55, 0, 22)
+            saveBtn.Position = UDim2.new(0, 120, 0.5, -11)
+            saveBtn.BackgroundColor3 = self.Theme.accent
+            saveBtn.BorderSizePixel = 0
+            saveBtn.Text = "保存"
+            saveBtn.TextColor3 = Color3.new(1, 1, 1)
+            saveBtn.TextSize = 11
+            saveBtn.Font = Enum.Font.GothamBold
+            createCorner(saveBtn, 4)
+            
+            -- 代码内容
+            local codeContent = Instance.new("TextLabel", codeFrame)
+            codeContent.Name = "Code"
+            codeContent.Size = UDim2.new(1, -16, 0, 0)
+            codeContent.Position = UDim2.new(0, 8, 0, 30)
+            codeContent.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+            codeContent.BorderSizePixel = 0
+            codeContent.Text = block.content
+            codeContent.TextColor3 = Color3.fromRGB(200, 200, 200)
+            codeContent.TextSize = 12
+            codeContent.Font = Enum.Font.Code
+            codeContent.TextXAlignment = Enum.TextXAlignment.Left
+            codeContent.TextYAlignment = Enum.TextYAlignment.Top
+            codeContent.TextWrapped = true
+            codeContent.AutomaticSize = Enum.AutomaticSize.Y
+            createCorner(codeContent, 4)
+            
+            -- 存储代码
+            table.insert(codeBlocks, {
+                frame = codeFrame,
+                code = block.content,
+                copyBtn = copyBtn,
+                execBtn = execBtn,
+                saveBtn = saveBtn
+            })
+            
+            -- 按钮事件
+            copyBtn.MouseButton1Click:Connect(function()
+                if setClipboard(block.content) then
+                    copyBtn.Text = "已复制!"
+                    task.delay(1, function()
+                        copyBtn.Text = "复制"
+                    end)
+                else
+                    copyBtn.Text = "失败"
+                    task.delay(1, function()
+                        copyBtn.Text = "复制"
+                    end)
+                end
+            end)
+            
+            execBtn.MouseButton1Click:Connect(function()
+                if self.messageCallbacks.onExecute then
+                    self.messageCallbacks.onExecute(block.content, codeFrame)
+                end
+            end)
+            
+            saveBtn.MouseButton1Click:Connect(function()
+                if self.messageCallbacks.onSave then
+                    self.messageCallbacks.onSave(block.content, codeFrame)
+                end
+            end)
+        end
+    end
     
     msgFrame.AutomaticSize = Enum.AutomaticSize.Y
     
@@ -611,7 +828,7 @@ function UI:addMessage(text, isUser)
     self.messageArea.CanvasSize = UDim2.new(0, 0, 0, self.messageArea.UIListLayout.AbsoluteContentSize.Y)
     self.messageArea.CanvasPosition = Vector2.new(0, self.messageArea.UIListLayout.AbsoluteContentSize.Y)
     
-    return msgFrame
+    return msgFrame, codeBlocks
 end
 
 -- 创建设置界面
@@ -621,46 +838,91 @@ function UI:createSettingsView()
     settingsFrame.Size = UDim2.new(1, 0, 1, 0)
     settingsFrame.BackgroundTransparency = 1
     
-    -- API Key 输入
-    local apiLabel = Instance.new("TextLabel", settingsFrame)
-    apiLabel.Size = UDim2.new(1, -16, 0, 18)
-    apiLabel.Position = UDim2.new(0, 8, 0, 8)
+    -- 创建滚动容器
+    local scrollFrame = Instance.new("ScrollingFrame", settingsFrame)
+    scrollFrame.Name = "SettingsScroll"
+    scrollFrame.Size = UDim2.new(1, -8, 1, 0)
+    scrollFrame.Position = UDim2.new(0, 4, 0, 0)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.ScrollBarThickness = 4
+    scrollFrame.ScrollBarImageColor3 = self.Theme.accent
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 500)
+    
+    local layout = Instance.new("UIListLayout", scrollFrame)
+    layout.Padding = UDim.new(0, 8)
+    
+    -- ========== 执行器信息 ==========
+    local executorSection = Instance.new("TextLabel", scrollFrame)
+    executorSection.Size = UDim2.new(1, -8, 0, 20)
+    executorSection.BackgroundTransparency = 1
+    executorSection.Text = "── 执行器信息 ──"
+    executorSection.TextColor3 = self.Theme.textSecondary
+    executorSection.TextSize = 12
+    executorSection.Font = Enum.Font.GothamBold
+    
+    local executorInfo = Instance.new("Frame", scrollFrame)
+    executorInfo.Size = UDim2.new(1, -8, 0, 50)
+    executorInfo.BackgroundColor3 = self.Theme.backgroundTertiary
+    executorInfo.BorderSizePixel = 0
+    createCorner(executorInfo, 6)
+    
+    local executorLabel = Instance.new("TextLabel", executorInfo)
+    executorLabel.Size = UDim2.new(1, -12, 1, 0)
+    executorLabel.Position = UDim2.new(0, 6, 0, 0)
+    executorLabel.BackgroundTransparency = 1
+    executorLabel.Text = "检测中..."
+    executorLabel.TextColor3 = self.Theme.text
+    executorLabel.TextSize = 12
+    executorLabel.Font = Enum.Font.Gotham
+    executorLabel.TextXAlignment = Enum.TextXAlignment.Left
+    executorLabel.TextYAlignment = Enum.TextYAlignment.Top
+    executorLabel.TextWrapped = true
+    
+    -- ========== API 配置 ==========
+    local apiSection = Instance.new("TextLabel", scrollFrame)
+    apiSection.Size = UDim2.new(1, -8, 0, 20)
+    apiSection.BackgroundTransparency = 1
+    apiSection.Text = "── API 配置 ──"
+    apiSection.TextColor3 = self.Theme.textSecondary
+    apiSection.TextSize = 12
+    apiSection.Font = Enum.Font.GothamBold
+    
+    -- API Key
+    local apiLabel = Instance.new("TextLabel", scrollFrame)
+    apiLabel.Size = UDim2.new(1, -8, 0, 16)
     apiLabel.BackgroundTransparency = 1
     apiLabel.Text = "API Key"
     apiLabel.TextColor3 = self.Theme.text
-    apiLabel.TextSize = 13
+    apiLabel.TextSize = 12
     apiLabel.Font = Enum.Font.GothamBold
     apiLabel.TextXAlignment = Enum.TextXAlignment.Left
     
-    local apiInput = Instance.new("TextBox", settingsFrame)
+    local apiInput = Instance.new("TextBox", scrollFrame)
     apiInput.Name = "ApiKeyInput"
-    apiInput.Size = UDim2.new(1, -16, 0, 32)
-    apiInput.Position = UDim2.new(0, 8, 0, 28)
+    apiInput.Size = UDim2.new(1, -8, 0, 28)
     apiInput.BackgroundColor3 = self.Theme.backgroundTertiary
     apiInput.BorderSizePixel = 0
     apiInput.PlaceholderText = "输入你的API Key..."
     apiInput.PlaceholderColor3 = self.Theme.textMuted
     apiInput.Text = ""
     apiInput.TextColor3 = self.Theme.text
-    apiInput.TextSize = 13
+    apiInput.TextSize = 12
     apiInput.Font = Enum.Font.Gotham
     apiInput.TextXAlignment = Enum.TextXAlignment.Left
     createCorner(apiInput, 6)
     
-    -- Provider 选择
-    local providerLabel = Instance.new("TextLabel", settingsFrame)
-    providerLabel.Size = UDim2.new(1, -16, 0, 18)
-    providerLabel.Position = UDim2.new(0, 8, 0, 72)
+    -- Provider
+    local providerLabel = Instance.new("TextLabel", scrollFrame)
+    providerLabel.Size = UDim2.new(1, -8, 0, 16)
     providerLabel.BackgroundTransparency = 1
     providerLabel.Text = "AI Provider"
     providerLabel.TextColor3 = self.Theme.text
-    providerLabel.TextSize = 13
+    providerLabel.TextSize = 12
     providerLabel.Font = Enum.Font.GothamBold
     providerLabel.TextXAlignment = Enum.TextXAlignment.Left
     
-    local providerFrame = Instance.new("Frame", settingsFrame)
-    providerFrame.Size = UDim2.new(1, -16, 0, 36)
-    providerFrame.Position = UDim2.new(0, 8, 0, 92)
+    local providerFrame = Instance.new("Frame", scrollFrame)
+    providerFrame.Size = UDim2.new(1, -8, 0, 32)
     providerFrame.BackgroundColor3 = self.Theme.backgroundTertiary
     providerFrame.BorderSizePixel = 0
     createCorner(providerFrame, 6)
@@ -673,9 +935,9 @@ function UI:createSettingsView()
     deepseekBtn.BorderSizePixel = 0
     deepseekBtn.Text = "DeepSeek"
     deepseekBtn.TextColor3 = Color3.new(1, 1, 1)
-    deepseekBtn.TextSize = 12
+    deepseekBtn.TextSize = 11
     deepseekBtn.Font = Enum.Font.GothamBold
-    createCorner(deepseekBtn, 6)
+    createCorner(deepseekBtn, 4)
     
     local openaiBtn = Instance.new("TextButton", providerFrame)
     openaiBtn.Name = "OpenAI"
@@ -685,52 +947,167 @@ function UI:createSettingsView()
     openaiBtn.BorderSizePixel = 0
     openaiBtn.Text = "OpenAI"
     openaiBtn.TextColor3 = self.Theme.text
-    openaiBtn.TextSize = 12
+    openaiBtn.TextSize = 11
     openaiBtn.Font = Enum.Font.Gotham
-    createCorner(openaiBtn, 6)
+    createCorner(openaiBtn, 4)
     
-    -- 按钮容器
-    local btnContainer = Instance.new("Frame", settingsFrame)
-    btnContainer.Size = UDim2.new(1, -16, 0, 36)
-    btnContainer.Position = UDim2.new(0, 8, 0, 140)
-    btnContainer.BackgroundTransparency = 1
+    -- ========== 脚本设置 ==========
+    local scriptSection = Instance.new("TextLabel", scrollFrame)
+    scriptSection.Size = UDim2.new(1, -8, 0, 20)
+    scriptSection.BackgroundTransparency = 1
+    scriptSection.Text = "── 脚本设置 ──"
+    scriptSection.TextColor3 = self.Theme.textSecondary
+    scriptSection.TextSize = 12
+    scriptSection.Font = Enum.Font.GothamBold
     
-    -- 保存按钮
-    local saveBtn = Instance.new("TextButton", btnContainer)
+    -- 脚本保存目录
+    local dirLabel = Instance.new("TextLabel", scrollFrame)
+    dirLabel.Size = UDim2.new(1, -8, 0, 16)
+    dirLabel.BackgroundTransparency = 1
+    dirLabel.Text = "脚本保存目录 (留空使用默认)"
+    dirLabel.TextColor3 = self.Theme.text
+    dirLabel.TextSize = 12
+    dirLabel.Font = Enum.Font.GothamBold
+    dirLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local dirInput = Instance.new("TextBox", scrollFrame)
+    dirInput.Name = "ScriptDirInput"
+    dirInput.Size = UDim2.new(1, -8, 0, 28)
+    dirInput.BackgroundColor3 = self.Theme.backgroundTertiary
+    dirInput.BorderSizePixel = 0
+    dirInput.PlaceholderText = "例如: workspace 或自定义路径"
+    dirInput.PlaceholderColor3 = self.Theme.textMuted
+    dirInput.Text = ""
+    dirInput.TextColor3 = self.Theme.text
+    dirInput.TextSize = 12
+    dirInput.Font = Enum.Font.Gotham
+    dirInput.TextXAlignment = Enum.TextXAlignment.Left
+    createCorner(dirInput, 6)
+    
+    -- 选项：执行前确认
+    local confirmBtn = Instance.new("TextButton", scrollFrame)
+    confirmBtn.Name = "ConfirmToggle"
+    confirmBtn.Size = UDim2.new(1, -8, 0, 28)
+    confirmBtn.BackgroundColor3 = self.Theme.backgroundTertiary
+    confirmBtn.BorderSizePixel = 0
+    confirmBtn.Text = "  执行前确认: 开启"
+    confirmBtn.TextColor3 = self.Theme.text
+    confirmBtn.TextSize = 12
+    confirmBtn.Font = Enum.Font.Gotham
+    confirmBtn.TextXAlignment = Enum.TextXAlignment.Left
+    createCorner(confirmBtn, 6)
+    
+    -- ========== 历史记录 ==========
+    local historySection = Instance.new("TextLabel", scrollFrame)
+    historySection.Size = UDim2.new(1, -8, 0, 20)
+    historySection.BackgroundTransparency = 1
+    historySection.Text = "── 历史记录 ──"
+    historySection.TextColor3 = self.Theme.textSecondary
+    historySection.TextSize = 12
+    historySection.Font = Enum.Font.GothamBold
+    
+    -- 历史记录按钮容器
+    local historyBtns = Instance.new("Frame", scrollFrame)
+    historyBtns.Size = UDim2.new(1, -8, 0, 28)
+    historyBtns.BackgroundTransparency = 1
+    
+    local clearHistoryBtn = Instance.new("TextButton", historyBtns)
+    clearHistoryBtn.Name = "ClearHistory"
+    clearHistoryBtn.Size = UDim2.new(0.5, -2, 1, 0)
+    clearHistoryBtn.BackgroundColor3 = self.Theme.warning
+    clearHistoryBtn.BorderSizePixel = 0
+    clearHistoryBtn.Text = "清除历史"
+    clearHistoryBtn.TextColor3 = Color3.new(0, 0, 0)
+    clearHistoryBtn.TextSize = 12
+    clearHistoryBtn.Font = Enum.Font.GothamBold
+    createCorner(clearHistoryBtn, 4)
+    
+    local exportHistoryBtn = Instance.new("TextButton", historyBtns)
+    exportHistoryBtn.Name = "ExportHistory"
+    exportHistoryBtn.Size = UDim2.new(0.5, -2, 1, 0)
+    exportHistoryBtn.Position = UDim2.new(0.5, 2, 0, 0)
+    exportHistoryBtn.BackgroundColor3 = self.Theme.accent
+    exportHistoryBtn.BorderSizePixel = 0
+    exportHistoryBtn.Text = "导出历史"
+    exportHistoryBtn.TextColor3 = Color3.new(1, 1, 1)
+    exportHistoryBtn.TextSize = 12
+    exportHistoryBtn.Font = Enum.Font.GothamBold
+    createCorner(exportHistoryBtn, 4)
+    
+    -- ========== 操作按钮 ==========
+    local actionSection = Instance.new("TextLabel", scrollFrame)
+    actionSection.Size = UDim2.new(1, -8, 0, 20)
+    actionSection.BackgroundTransparency = 1
+    actionSection.Text = "── 操作 ──"
+    actionSection.TextColor3 = self.Theme.textSecondary
+    actionSection.TextSize = 12
+    actionSection.Font = Enum.Font.GothamBold
+    
+    local actionBtns = Instance.new("Frame", scrollFrame)
+    actionBtns.Size = UDim2.new(1, -8, 0, 32)
+    actionBtns.BackgroundTransparency = 1
+    
+    local saveBtn = Instance.new("TextButton", actionBtns)
     saveBtn.Name = "SaveButton"
-    saveBtn.Size = UDim2.new(0.5, -4, 1, 0)
-    saveBtn.Position = UDim2.new(0, 0, 0, 0)
+    saveBtn.Size = UDim2.new(0.5, -2, 1, 0)
     saveBtn.BackgroundColor3 = self.Theme.success
     saveBtn.BorderSizePixel = 0
     saveBtn.Text = "保存设置"
     saveBtn.TextColor3 = Color3.new(1, 1, 1)
-    saveBtn.TextSize = 13
+    saveBtn.TextSize = 12
     saveBtn.Font = Enum.Font.GothamBold
-    createCorner(saveBtn, 6)
+    createCorner(saveBtn, 4)
     
-    -- 测试连接按钮
-    local testBtn = Instance.new("TextButton", btnContainer)
+    local testBtn = Instance.new("TextButton", actionBtns)
     testBtn.Name = "TestButton"
-    testBtn.Size = UDim2.new(0.5, -4, 1, 0)
-    testBtn.Position = UDim2.new(0.5, 4, 0, 0)
+    testBtn.Size = UDim2.new(0.5, -2, 1, 0)
+    testBtn.Position = UDim2.new(0.5, 2, 0, 0)
     testBtn.BackgroundColor3 = self.Theme.accent
     testBtn.BorderSizePixel = 0
     testBtn.Text = "测试连接"
     testBtn.TextColor3 = Color3.new(1, 1, 1)
-    testBtn.TextSize = 13
+    testBtn.TextSize = 12
     testBtn.Font = Enum.Font.GothamBold
-    createCorner(testBtn, 6)
+    createCorner(testBtn, 4)
     
+    -- 保存引用
     self.settingsView = settingsFrame
+    self.settingsScroll = scrollFrame
+    self.executorLabel = executorLabel
     self.apiKeyInput = apiInput
+    self.scriptDirInput = dirInput
+    self.confirmToggle = confirmBtn
     self.providerButtons = {
         deepseek = deepseekBtn,
         openai = openaiBtn
     }
     self.saveSettingsBtn = saveBtn
     self.testConnectionBtn = testBtn
+    self.clearHistoryBtn = clearHistoryBtn
+    self.exportHistoryBtn = exportHistoryBtn
     
     return settingsFrame
+end
+
+-- 更新执行器信息显示
+function UI:updateExecutorInfo(info)
+    if self.executorLabel then
+        local text = string.format(
+            "执行器: %s\n支持写入: %s | 支持执行: %s",
+            info.name or "Unknown",
+            info.canWrite and "是" or "否",
+            info.canExecute and "是" or "否"
+        )
+        self.executorLabel.Text = text
+    end
+end
+
+-- 更新确认开关状态
+function UI:updateConfirmToggle(enabled)
+    if self.confirmToggle then
+        self.confirmToggle.Text = "  执行前确认: " .. (enabled and "开启" or "关闭")
+        self.confirmToggle.confirmEnabled = enabled
+    end
 end
 
 -- 创建资源浏览器

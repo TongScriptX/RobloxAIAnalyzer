@@ -1,212 +1,362 @@
 --[[
-    Roblox AI Resource Analyzer - Configuration
-    Version: 1.0.0
-    
-    配置文件：包含API密钥、端点和各种设置
+    Roblox AI CLI Config
+    v1.1.0
 ]]
 
 local Config = {}
 
--- AI Provider 配置
+local HttpService = game:GetService("HttpService")
+
+-- AI providers
 Config.Providers = {
     DeepSeek = {
         name = "DeepSeek",
         baseUrl = "https://api.deepseek.com",
         endpoint = "/chat/completions",
-        models = {
-            "deepseek-chat",
-            "deepseek-reasoner"
-        },
+        models = {"deepseek-chat", "deepseek-reasoner"},
         defaultModel = "deepseek-chat",
-        apiKey = "" -- 用户需要填写自己的API Key
+        apiKey = ""
     },
     OpenAI = {
         name = "OpenAI",
         baseUrl = "https://api.openai.com",
         endpoint = "/v1/chat/completions",
-        models = {
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4-turbo",
-            "gpt-3.5-turbo"
-        },
+        models = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"},
         defaultModel = "gpt-4o-mini",
-        apiKey = "" -- 用户需要填写自己的API Key
+        apiKey = ""
     }
 }
 
--- 默认配置
+-- 执行器相关
+Config.ExecutorConfig = {
+    detectedExecutor = "Unknown",
+    scriptDir = "",
+    autoDetectedDir = "",
+    canWriteFile = false,
+    -- 常见执行器的默认保存目录
+    knownDirs = {
+        ["Synapse X"] = "workspace",
+        ["Script-Ware"] = "workspace",
+        ["KRNL"] = "workspace",
+        ["Fluxus"] = "workspace",
+        ["Electron"] = "workspace",
+        ["Delta"] = "workspace",
+        ["Codex"] = "workspace"
+    }
+}
+
+-- 主配置
 Config.Settings = {
-    -- 当前使用的AI提供商
     currentProvider = "DeepSeek",
-    
-    -- HTTP请求超时时间（秒）
     timeout = 60,
-    
-    -- 最大生成token数
     maxTokens = 4096,
-    
-    -- 温度参数
     temperature = 0.7,
-    
-    -- 是否启用流式响应（游戏内暂不支持）
     stream = false,
     
-    -- 资源扫描设置
-    scan = {
-        -- 扫描的最大深度
-        maxDepth = 20,
-        
-        -- 每次扫描的最大对象数
-        maxObjects = 5000,
-        
-        -- 是否扫描nil instances
-        includeNilInstances = true,
-        
-        -- 要扫描的服务
-        services = {
-            "Workspace",
-            "ReplicatedStorage", 
-            "ReplicatedFirst",
-            "Lighting",
-            "ServerStorage",
-            "ServerScriptService"
-        },
-        
-        -- 要关注的实例类型
-        focusTypes = {
-            "RemoteEvent",
-            "RemoteFunction",
-            "LocalScript",
-            "ModuleScript",
-            "Script",
-            "BindableEvent",
-            "BindableFunction",
-            "ValueBase",
-            "Folder"
-        }
-    },
+    -- 脚本相关
+    autoExecute = false,
+    confirmBeforeExecute = true,  -- 执行前确认，安全第一
+    saveGeneratedScript = true,
     
-    -- UI设置
-    ui = {
-        -- 主题颜色
-        theme = {
-            background = Color3.fromRGB(30, 30, 35),
-            backgroundSecondary = Color3.fromRGB(40, 40, 45),
-            backgroundTertiary = Color3.fromRGB(50, 50, 55),
-            accent = Color3.fromRGB(88, 166, 255),
-            accentHover = Color3.fromRGB(108, 186, 255),
-            text = Color3.fromRGB(240, 240, 240),
-            textSecondary = Color3.fromRGB(180, 180, 180),
-            success = Color3.fromRGB(76, 175, 80),
-            warning = Color3.fromRGB(255, 193, 7),
-            error = Color3.fromRGB(244, 67, 54)
-        },
-        
-        -- 窗口大小
-        windowSize = UDim2.new(0, 600, 0, 450),
-        
-        -- 字体大小
-        fontSize = 14,
-        
-        -- 圆角大小
-        cornerRadius = 8
+    -- 历史记录
+    maxHistorySize = 50,
+    autoSaveHistory = true,
+    
+    -- 扫描配置
+    scan = {
+        maxDepth = 20,
+        maxObjects = 5000,
+        includeNilInstances = true,
+        services = {"Workspace", "ReplicatedStorage", "ReplicatedFirst", "Lighting"},
+        focusTypes = {"RemoteEvent", "RemoteFunction", "LocalScript", "ModuleScript", "Script", "BindableEvent", "BindableFunction", "Folder"}
     }
 }
 
--- System Prompt 模板
+-- 历史记录
+Config.History = {
+    conversations = {},
+    executedScripts = {},
+    savedScripts = {}
+}
+
+-- AI提示词
 Config.SystemPrompts = {
-    -- 资源分析提示词
-    analyzer = [[You are a Roblox game analysis expert. You help users understand and analyze game resources.
+    analyzer = [[You are a Roblox game analysis expert and code assistant. You help users understand game resources and generate Lua code.
 
 Your capabilities:
 1. Analyze game objects, scripts, and RemoteEvents/RemoteFunctions
 2. Explain game mechanics based on code structure
-3. Help users find specific resources in the game
-4. Generate Lua code snippets for interacting with game objects
+3. Generate working Lua code for script executors
+4. Help debug and optimize code
 
-When analyzing:
-- Provide clear, structured explanations
-- Include object paths and types
-- Suggest practical code examples when appropriate
-- Consider game security and best practices
+Code Generation Rules:
+- Always wrap code in ```lua code blocks
+- Use executor-specific functions when needed (getgenv, getnilinstances, etc.)
+- Include error handling with pcall
+- Add brief comments for complex logic
+- Make code ready to execute
 
 Respond in the same language as the user's question.]],
 
-    -- 代码生成提示词
-    codeGenerator = [[You are a Roblox Lua expert. Generate clean, efficient, and safe code.
+    codeGenerator = [[You are a Roblox Lua code generator. Generate clean, executable code.
 
 Rules:
-1. Use proper Roblox API conventions
-2. Include error handling where appropriate
-3. Add brief comments for complex logic
-4. Follow Lua style guidelines
-5. Code should work with script executors (using getgenv, getnilinstances, etc. when needed)
+1. Always wrap code in ```lua code blocks
+2. Use proper Roblox API conventions
+3. Include error handling with pcall
+4. Use executor functions: getgenv, getnilinstances, hookfunction when needed
+5. Add brief comments
 
-Output only the code without markdown formatting unless the user asks for explanation.]]
+Output format:
+```lua
+-- Your code here
+```
+
+Brief explanation after code block if needed.]]
 }
 
--- 获取当前提供商配置
+-- 检测执行器
+function Config:detectExecutor()
+    local info = {name = "Unknown", canWrite = false, canExecute = false, scriptDir = ""}
+    
+    -- 逐个检测，没啥优雅的办法
+    if syn then
+        info.name = "Synapse X"
+        info.canWrite = true
+        info.canExecute = true
+    elseif KRNL_LOADED then
+        info.name = "KRNL"
+        info.canWrite = true
+        info.canExecute = true
+    elseif fluxus then
+        info.name = "Fluxus"
+        info.canWrite = true
+        info.canExecute = true
+    elseif identifyexecutor then
+        info.name = identifyexecutor()
+        info.canWrite = true
+        info.canExecute = true
+    end
+    
+    -- 通用检测
+    if writefile then info.canWrite = true end
+    if loadstring then info.canExecute = true end
+    
+    self.ExecutorConfig.detectedExecutor = info.name
+    self.ExecutorConfig.canWriteFile = info.canWrite
+    
+    return info
+end
+
+-- 获取脚本保存目录
+function Config:getScriptDir()
+    if self.ExecutorConfig.scriptDir ~= "" then
+        return self.ExecutorConfig.scriptDir
+    end
+    
+    local executor = self:detectExecutor()
+    local knownDir = self.ExecutorConfig.knownDirs[executor.name]
+    
+    return knownDir or "workspace"
+end
+
+function Config:setScriptDir(dir)
+    self.ExecutorConfig.scriptDir = dir
+    self:save()
+end
+
 function Config:getCurrentProvider()
     return self.Providers[self.Settings.currentProvider]
 end
 
--- 获取API Key
-function Config:getApiKey(providerName)
-    providerName = providerName or self.Settings.currentProvider
-    local provider = self.Providers[providerName]
-    return provider and provider.apiKey or ""
+function Config:getApiKey(name)
+    name = name or self.Settings.currentProvider
+    local p = self.Providers[name]
+    return p and p.apiKey or ""
 end
 
--- 设置API Key
-function Config:setApiKey(providerName, apiKey)
-    if self.Providers[providerName] then
-        self.Providers[providerName].apiKey = apiKey
+function Config:setApiKey(name, key)
+    if self.Providers[name] then
+        self.Providers[name].apiKey = key
         return true
     end
     return false
 end
 
--- 切换提供商
-function Config:switchProvider(providerName)
-    if self.Providers[providerName] then
-        self.Settings.currentProvider = providerName
+function Config:switchProvider(name)
+    if self.Providers[name] then
+        self.Settings.currentProvider = name
         return true
     end
     return false
 end
 
--- 保存配置到全局（持久化）
+-- 历史记录相关
+function Config:addToHistory(role, content)
+    table.insert(self.History.conversations, {
+        role = role,
+        content = content,
+        timestamp = os.time()
+    })
+    
+    -- 限制大小，不然太占内存
+    while #self.History.conversations > self.Settings.maxHistorySize * 2 do
+        table.remove(self.History.conversations, 1)
+    end
+    
+    if self.Settings.autoSaveHistory then
+        self:saveHistory()
+    end
+end
+
+function Config:clearHistory()
+    self.History.conversations = {}
+    self:saveHistory()
+end
+
+function Config:getConversationHistory()
+    return self.History.conversations
+end
+
+function Config:addExecutedScript(script, success)
+    table.insert(self.History.executedScripts, 1, {
+        script = script:sub(1, 500),  -- 只保存前500字符，够用了
+        success = success,
+        timestamp = os.time()
+    })
+    
+    while #self.History.executedScripts > 20 do
+        table.remove(self.History.executedScripts)
+    end
+    
+    self:saveHistory()
+end
+
+-- 保存脚本文件
+function Config:saveScript(filename, content)
+    if not writefile then
+        return false, "writefile not available"
+    end
+    
+    local path = filename
+    if not filename:match("%.lua$") then
+        path = filename .. ".lua"
+    end
+    
+    local ok, err = pcall(function()
+        writefile(path, content)
+    end)
+    
+    if ok then
+        table.insert(self.History.savedScripts, 1, {
+            name = path,
+            timestamp = os.time()
+        })
+        self:saveHistory()
+        return true, path
+    else
+        return false, tostring(err)
+    end
+end
+
+function Config:listSavedScripts()
+    local list = {}
+    for _, item in ipairs(self.History.savedScripts) do
+        table.insert(list, item.name)
+    end
+    return list
+end
+
+-- 保存配置到getgenv
 function Config:save()
     local data = {
         currentProvider = self.Settings.currentProvider,
-        providers = {}
-    }
-    for name, provider in pairs(self.Providers) do
-        data.providers[name] = {
-            apiKey = provider.apiKey
+        providers = {},
+        executorConfig = {scriptDir = self.ExecutorConfig.scriptDir},
+        settings = {
+            autoExecute = self.Settings.autoExecute,
+            confirmBeforeExecute = self.Settings.confirmBeforeExecute,
+            saveGeneratedScript = self.Settings.saveGeneratedScript,
+            maxHistorySize = self.Settings.maxHistorySize
         }
+    }
+    
+    for name, p in pairs(self.Providers) do
+        data.providers[name] = {apiKey = p.apiKey}
     end
-    local jsonData = game:GetService("HttpService"):JSONEncode(data)
-    getgenv().RobloxAIAnalyzerConfig = jsonData
+    
+    getgenv().RobloxAIAnalyzerConfig = HttpService:JSONEncode(data)
 end
 
--- 从全局加载配置
+-- 保存历史
+function Config:saveHistory()
+    local data = {
+        conversations = self.History.conversations,
+        executedScripts = self.History.executedScripts,
+        savedScripts = self.History.savedScripts
+    }
+    getgenv().RobloxAIAnalyzerHistory = HttpService:JSONEncode(data)
+end
+
+-- 加载历史（供外部调用）
+function Config:loadHistory()
+    local saved = getgenv().RobloxAIAnalyzerHistory
+    if saved then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(saved)
+        end)
+        if ok and data then
+            return data.conversations or {}
+        end
+    end
+    return {}
+end
+
+-- 加载配置
 function Config:load()
     local saved = getgenv().RobloxAIAnalyzerConfig
     if saved then
-        local data = game:GetService("HttpService"):JSONDecode(saved)
-        if data.currentProvider then
-            self.Settings.currentProvider = data.currentProvider
-        end
-        if data.providers then
-            for name, pData in pairs(data.providers) do
-                if self.Providers[name] and pData.apiKey then
-                    self.Providers[name].apiKey = pData.apiKey
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(saved)
+        end)
+        if ok and data then
+            if data.currentProvider then
+                self.Settings.currentProvider = data.currentProvider
+            end
+            if data.providers then
+                for name, pData in pairs(data.providers) do
+                    if self.Providers[name] and pData.apiKey then
+                        self.Providers[name].apiKey = pData.apiKey
+                    end
                 end
+            end
+            if data.executorConfig and data.executorConfig.scriptDir then
+                self.ExecutorConfig.scriptDir = data.executorConfig.scriptDir
+            end
+            if data.settings then
+                -- 批量更新设置
+                local s = data.settings
+                if s.autoExecute ~= nil then self.Settings.autoExecute = s.autoExecute end
+                if s.confirmBeforeExecute ~= nil then self.Settings.confirmBeforeExecute = s.confirmBeforeExecute end
+                if s.saveGeneratedScript ~= nil then self.Settings.saveGeneratedScript = s.saveGeneratedScript end
             end
         end
     end
+    
+    -- 加载历史
+    local savedHistory = getgenv().RobloxAIAnalyzerHistory
+    if savedHistory then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(savedHistory)
+        end)
+        if ok and data then
+            if data.conversations then self.History.conversations = data.conversations end
+            if data.executedScripts then self.History.executedScripts = data.executedScripts end
+            if data.savedScripts then self.History.savedScripts = data.savedScripts end
+        end
+    end
+    
+    self:detectExecutor()
 end
 
 return Config
