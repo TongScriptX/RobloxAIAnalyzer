@@ -301,7 +301,7 @@ function App:setupUI()
     ui:createResourceView()
     
     ui:showView("chat")
-    self:updateStatus()
+    self:updateConnectionStatus()
 end
 
 function App:loadSettings()

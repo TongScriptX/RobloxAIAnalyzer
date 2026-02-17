@@ -1106,7 +1106,7 @@ end
 function UI:updateConfirmToggle(enabled)
     if self.confirmToggle then
         self.confirmToggle.Text = "  执行前确认: " .. (enabled and "开启" or "关闭")
-        self.confirmToggle.confirmEnabled = enabled
+        self.confirmToggle:SetAttribute("confirmEnabled", enabled)
     end
 end
 
