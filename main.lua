@@ -804,7 +804,7 @@ function App:updateConnectionStatus()
     end
 end
 
--- ==================== 启动 ====================
-App:Init()
+-- 启动
+App:init()
 
 return App
