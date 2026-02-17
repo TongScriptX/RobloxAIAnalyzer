@@ -346,47 +346,47 @@ function App:bindEvents()
     end)
     
     -- Provider切换
-    UI.providerButtons.deepseek.MouseButton1Click:Connect(function()
+    ui.providerButtons.deepseek.MouseButton1Click:Connect(function()
         self:switchProvider("DeepSeek")
     end)
     
-    UI.providerButtons.openai.MouseButton1Click:Connect(function()
+    ui.providerButtons.openai.MouseButton1Click:Connect(function()
         self:switchProvider("OpenAI")
     end)
     
     -- 执行前确认开关
-    UI.confirmToggle.MouseButton1Click:Connect(function()
-        if Config then
-            Config.Settings.confirmBeforeExecute = not Config.Settings.confirmBeforeExecute
-            UI:updateConfirmToggle(Config.Settings.confirmBeforeExecute)
+    ui.confirmToggle.MouseButton1Click:Connect(function()
+        if cfg then
+            cfg.Settings.confirmBeforeExecute = not cfg.Settings.confirmBeforeExecute
+            ui:updateConfirmToggle(cfg.Settings.confirmBeforeExecute)
         end
     end)
     
     -- 历史记录操作
-    UI.clearHistoryBtn.MouseButton1Click:Connect(function()
+    ui.clearHistoryBtn.MouseButton1Click:Connect(function()
         self:clearHistory()
     end)
     
-    UI.exportHistoryBtn.MouseButton1Click:Connect(function()
+    ui.exportHistoryBtn.MouseButton1Click:Connect(function()
         self:exportHistory()
     end)
     
     -- 资源扫描
-    UI.scanBtn.MouseButton1Click:Connect(function()
+    ui.scanBtn.MouseButton1Click:Connect(function()
         self:scanResources()
     end)
     
-    UI.resourceSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-        self:searchResources(UI.resourceSearchBox.Text)
+    ui.resourceSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        self:searchResources(ui.resourceSearchBox.Text)
     end)
 end
 
 -- 设置UI回调
 function App:setupCallbacks()
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     
     -- 执行脚本回调
-    UI:onExecute(function(code, frame)
+    ui:onExecute(function(code, frame)
         local Config = _G.AIAnalyzer.Config
         local confirmBeforeExecute = Config and Config.Settings.confirmBeforeExecute
         
@@ -409,7 +409,7 @@ function App:setupCallbacks()
     end)
     
     -- 保存脚本回调
-    UI:onSave(function(code, frame)
+    ui:onSave(function(code, frame)
         local Config = _G.AIAnalyzer.Config
         local timestamp = os.date("%Y%m%d_%H%M%S")
         local name = "ai_script_" .. timestamp
@@ -425,15 +425,15 @@ end
 
 -- ==================== 消息处理 ====================
 function App:addSystemMessage(text)
-    local UI = _G.AIAnalyzer.UI
-    UI:addMessage("ℹ️ " .. text, false)
+    local ui = _G.AIAnalyzer.UI
+    ui:addMessage("ℹ️ " .. text, false)
 end
 
 function App:showWelcome()
-    local UI = _G.AIAnalyzer.UI
-    UI:clearMessages()
+    local ui = _G.AIAnalyzer.UI
+    ui:clearMessages()
     
-    UI:addMessage(string.format([[
+    ui:addMessage(string.format([[
 🤖 Roblox AI CLI v%s
 
 欢迎使用！这是一个AI驱动的Roblox游戏分析工具。
@@ -458,13 +458,13 @@ function App:showWelcome()
 end
 
 function App:sendMessage()
-    local UI = _G.AIAnalyzer.UI
-    local text = UI.inputBox.Text
+    local ui = _G.AIAnalyzer.UI
+    local text = ui.inputBox.Text
     
     if text == "" or text:match("^%s*$") then return end
     
-    UI.inputBox.Text = ""
-    UI:addMessage(text, true)
+    ui.inputBox.Text = ""
+    ui:addMessage(text, true)
     
     -- 处理特殊命令
     local cmd = text:lower():match("^%s*(.-)%s*$")
@@ -480,7 +480,7 @@ function App:sendMessage()
     end
     
     if cmd == "清除" or cmd == "clear" then
-        UI:clearMessages()
+        ui:clearMessages()
         return
     end
     
@@ -493,8 +493,8 @@ function App:sendMessage()
 end
 
 function App:showHelp()
-    local UI = _G.AIAnalyzer.UI
-    UI:addMessage([[
+    local ui = _G.AIAnalyzer.UI
+    ui:addMessage([[
 📖 帮助信息
 
 📌 基础命令:
@@ -517,37 +517,37 @@ end
 
 -- 显示历史记录
 function App:showHistory()
-    local UI = _G.AIAnalyzer.UI
-    UI:showView("chat")
+    local ui = _G.AIAnalyzer.UI
+    ui:showView("chat")
     
     if #self.history == 0 then
-        UI:addMessage("📜 暂无历史记录", false)
+        ui:addMessage("📜 暂无历史记录", false)
         return
     end
     
-    UI:addMessage(string.format("📜 最近 %d 条记录:", #self.history), false)
+    ui:addMessage(string.format("📜 最近 %d 条记录:", #self.history), false)
     
     for i, entry in ipairs(self.history) do
         if i > 10 then break end
-        UI:addMessage(string.format("[%s] %s", entry.time, entry.query:sub(1, 50)), false)
+        ui:addMessage(string.format("[%s] %s", entry.time, entry.query:sub(1, 50)), false)
     end
 end
 
 -- 清除历史
 function App:clearHistory()
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     self.history = {}
     saveHistory()
-    UI:addMessage("✅ 历史记录已清除", false)
+    ui:addMessage("✅ 历史记录已清除", false)
 end
 
 -- 导出历史
 function App:exportHistory()
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local HttpService = game:GetService("HttpService")
     
     if #self.history == 0 then
-        UI:addMessage("⚠️ 暂无历史记录可导出", false)
+        ui:addMessage("⚠️ 暂无历史记录可导出", false)
         return
     end
     
@@ -555,51 +555,51 @@ function App:exportHistory()
     local success, result = saveScript("history_export", json)
     
     if success then
-        UI:addMessage("✅ 历史已导出: " .. result, false)
+        ui:addMessage("✅ 历史已导出: " .. result, false)
     else
         -- 复制到剪贴板
         if setclipboard then
             setclipboard(json)
-            UI:addMessage("✅ 历史已复制到剪贴板", false)
+            ui:addMessage("✅ 历史已复制到剪贴板", false)
         else
-            UI:addMessage("❌ 导出失败: " .. tostring(result), false)
+            ui:addMessage("❌ 导出失败: " .. tostring(result), false)
         end
     end
 end
 
 -- ==================== AI交互 ====================
 function App:sendToAI(query)
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local AIClient = _G.AIAnalyzer.AIClient
     local Config = _G.AIAnalyzer.Config
     
     if not AIClient then
-        UI:addMessage("❌ AIClient模块未加载", false)
+        ui:addMessage("❌ AIClient模块未加载", false)
         return
     end
     
     if not Config then
-        UI:addMessage("❌ Config模块未加载", false)
+        ui:addMessage("❌ Config模块未加载", false)
         return
     end
     
     local provider = Config:getCurrentProvider()
     if not provider.apiKey or provider.apiKey == "" then
-        UI:addMessage("⚠️ 请先在设置页面配置API Key", false)
-        UI:showView("settings")
+        ui:addMessage("⚠️ 请先在设置页面配置API Key", false)
+        ui:showView("settings")
         return
     end
     
     local Scanner = _G.AIAnalyzer.Scanner
     local context = Scanner and Scanner:toAIContext(50) or {}
     
-    UI:addMessage("⏳ 正在思考...", false)
+    ui:addMessage("⏳ 正在思考...", false)
     
     spawn(function()
         local result, err = AIClient:analyzeResources(query, context)
         
         -- 移除加载提示
-        local children = UI.messageArea:GetChildren()
+        local children = ui.messageArea:GetChildren()
         for i = #children, 1, -1 do
             if children[i]:IsA("Frame") then
                 local label = children[i]:FindFirstChildWhichIsA("TextLabel", true)
@@ -611,45 +611,45 @@ function App:sendToAI(query)
         end
         
         if result then
-            UI:addMessage(result.content, false)
+            ui:addMessage(result.content, false)
             addHistory(query, result.content)
         else
-            UI:addMessage("❌ 错误: " .. tostring(err), false)
+            ui:addMessage("❌ 错误: " .. tostring(err), false)
         end
     end)
 end
 
 -- ==================== 资源管理 ====================
 function App:scanResources()
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local Scanner = _G.AIAnalyzer.Scanner
     
     if not Scanner then
-        UI:addMessage("❌ Scanner模块未加载", false)
+        ui:addMessage("❌ Scanner模块未加载", false)
         return
     end
     
-    UI:addMessage("🔍 正在扫描游戏资源...", false)
+    ui:addMessage("🔍 正在扫描游戏资源...", false)
     
     spawn(function()
         local results = Scanner:scan()
         local stats = Scanner:getStats()
         
-        UI:clearResourceList()
+        ui:clearResourceList()
         
         for _, remote in ipairs(results.remotes) do
-            UI:addResourceItem(remote.name, remote.className, remote.path, function()
+            ui:addResourceItem(remote.name, remote.className, remote.path, function()
                 self:analyzeResource(remote)
             end)
         end
         
         for _, script in ipairs(results.scripts) do
-            UI:addResourceItem(script.name, script.className, script.path, function()
+            ui:addResourceItem(script.name, script.className, script.path, function()
                 self:analyzeScript(script)
             end)
         end
         
-        UI:addMessage(string.format(
+        ui:addMessage(string.format(
             "✅ 扫描完成\n• 总对象: %d\n• Remote: %d\n• Script: %d",
             stats.totalObjects, stats.remoteCount, stats.scriptCount
         ), false)
@@ -657,39 +657,39 @@ function App:scanResources()
 end
 
 function App:searchResources(query)
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local Scanner = _G.AIAnalyzer.Scanner
     
     if query == "" or not Scanner then return end
     
     local results = Scanner:search(query)
-    UI:clearResourceList()
+    ui:clearResourceList()
     
     for _, obj in ipairs(results) do
-        UI:addResourceItem(obj.name, obj.className, obj.path, function()
+        ui:addResourceItem(obj.name, obj.className, obj.path, function()
             self:analyzeResource(obj)
         end)
     end
 end
 
 function App:analyzeResource(resource)
-    local UI = _G.AIAnalyzer.UI
-    UI:showView("chat")
+    local ui = _G.AIAnalyzer.UI
+    ui:showView("chat")
     
     local prompt = string.format(
         "请分析这个游戏资源：\n名称: %s\n类型: %s\n路径: %s\n\n请解释它的用途和使用方法，如果可能给出示例代码。",
         resource.name, resource.className, resource.path
     )
     
-    UI.inputBox.Text = prompt
+    ui.inputBox.Text = prompt
     self:sendMessage()
 end
 
 function App:analyzeScript(scriptInfo)
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local Reader = _G.AIAnalyzer.Reader
     
-    UI:showView("chat")
+    ui:showView("chat")
     
     if Reader and Reader:canDecompile() then
         local scripts = Reader:getAllScripts()
@@ -702,7 +702,7 @@ function App:analyzeScript(scriptInfo)
                         scriptData.name, scriptData.className, scriptData.path,
                         scriptData.source:sub(1, 3000)
                     )
-                    UI.inputBox.Text = prompt
+                    ui.inputBox.Text = prompt
                     self:sendMessage()
                     return
                 end
@@ -714,22 +714,22 @@ function App:analyzeScript(scriptInfo)
         "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s\n\n（无法读取源码）",
         scriptInfo.name, scriptInfo.className, scriptInfo.path
     )
-    UI.inputBox.Text = prompt
+    ui.inputBox.Text = prompt
     self:sendMessage()
 end
 
 -- ==================== 设置管理 ====================
 function App:saveSettings()
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local Config = _G.AIAnalyzer.Config
     
     if not Config then
-        UI:addMessage("❌ Config模块未加载", false)
+        ui:addMessage("❌ Config模块未加载", false)
         return
     end
     
-    local apiKey = UI.apiKeyInput.Text
-    local scriptDir = UI.scriptDirInput.Text
+    local apiKey = ui.apiKeyInput.Text
+    local scriptDir = ui.scriptDirInput.Text
     local currentProvider = Config.Settings.currentProvider
     
     if apiKey and apiKey ~= "" then
@@ -739,68 +739,68 @@ function App:saveSettings()
     Config.Settings.scriptDir = scriptDir ~= "" and scriptDir or "workspace"
     Config:save()
     
-    UI:addMessage("✅ 设置已保存", false)
+    ui:addMessage("✅ 设置已保存", false)
     self:updateConnectionStatus()
 end
 
 function App:testConnection()
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local AIClient = _G.AIAnalyzer.AIClient
     
     if not AIClient then
-        UI:addMessage("❌ AIClient模块未加载", false)
+        ui:addMessage("❌ AIClient模块未加载", false)
         return
     end
     
-    UI:addMessage("🔍 正在测试API连接...", false)
+    ui:addMessage("🔍 正在测试API连接...", false)
     
     spawn(function()
         local success, message = AIClient:testConnection()
         
         if success then
-            UI:addMessage("✅ " .. message, false)
-            UI:updateStatus("已连接", UI.Theme.success)
+            ui:addMessage("✅ " .. message, false)
+            ui:updateStatus("已连接", ui.Theme.success)
         else
-            UI:addMessage("❌ " .. message, false)
-            UI:updateStatus("失败", UI.Theme.error)
+            ui:addMessage("❌ " .. message, false)
+            ui:updateStatus("失败", ui.Theme.error)
         end
     end)
 end
 
 function App:switchProvider(providerName)
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local Config = _G.AIAnalyzer.Config
     
     if not Config then return end
     
     Config:switchProvider(providerName)
     
-    for name, btn in pairs(UI.providerButtons) do
+    for name, btn in pairs(ui.providerButtons) do
         if name:lower() == providerName:lower() then
-            btn.BackgroundColor3 = UI.Theme.accent
+            btn.BackgroundColor3 = ui.Theme.accent
             btn.TextColor3 = Color3.new(1, 1, 1)
         else
-            btn.BackgroundColor3 = UI.Theme.backgroundSecondary
-            btn.TextColor3 = UI.Theme.text
+            btn.BackgroundColor3 = ui.Theme.backgroundSecondary
+            btn.TextColor3 = ui.Theme.text
         end
     end
     
     local provider = Config:getCurrentProvider()
-    UI.apiKeyInput.Text = provider.apiKey or ""
+    ui.apiKeyInput.Text = provider.apiKey or ""
     self:updateConnectionStatus()
 end
 
 function App:updateConnectionStatus()
-    local UI = _G.AIAnalyzer.UI
+    local ui = _G.AIAnalyzer.UI
     local Config = _G.AIAnalyzer.Config
     
     if not Config then return end
     
     local provider = Config:getCurrentProvider()
     if provider and provider.apiKey and provider.apiKey ~= "" then
-        UI:updateStatus(provider.name, UI.Theme.accent)
+        ui:updateStatus(provider.name, ui.Theme.accent)
     else
-        UI:updateStatus("未配置", UI.Theme.warning)
+        ui:updateStatus("未配置", ui.Theme.warning)
     end
 end
 
