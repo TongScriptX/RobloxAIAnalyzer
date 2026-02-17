@@ -1424,19 +1424,30 @@ function UI:addResourceToCategory(name, className, path, onClick)
     end
 end
 
--- 资源操作弹窗
+-- 资源操作弹窗（展开菜单风格）
 function UI:showResourceDialog(resource, callbacks)
+    -- 移除已存在的弹窗
+    local existing = self.screenGui:FindFirstChild("ResourceDialogOverlay")
+    if existing then existing:Destroy() end
+    
     local overlay = Instance.new("Frame", self.screenGui)
     overlay.Name = "ResourceDialogOverlay"
     overlay.Size = UDim2.new(1, 0, 1, 0)
     overlay.BackgroundColor3 = Color3.new(0, 0, 0)
-    overlay.BackgroundTransparency = 0.5
+    overlay.BackgroundTransparency = 0.6
     overlay.ZIndex = 200
+    
+    -- 计算按钮数量确定弹窗高度
+    local btnCount = 2  -- 分析 + 复制路径
+    if resource.className:find("Remote") then btnCount = btnCount + 1 end
+    if resource.className:find("Script") then btnCount = btnCount + 2 end
+    
+    local dialogHeight = 75 + btnCount * 36
     
     local dialog = Instance.new("Frame", overlay)
     dialog.Name = "Dialog"
-    dialog.Size = UDim2.new(0, 300, 0, 200)
-    dialog.Position = UDim2.new(0.5, -150, 0.5, -100)
+    dialog.Size = UDim2.new(0, 320, 0, dialogHeight)
+    dialog.Position = UDim2.new(0.5, -160, 0.5, -dialogHeight/2)
     dialog.BackgroundColor3 = self.Theme.background
     dialog.BorderSizePixel = 0
     dialog.ZIndex = 201
@@ -1446,89 +1457,158 @@ function UI:showResourceDialog(resource, callbacks)
     stroke.Color = self.Theme.border
     stroke.Thickness = 1
     
-    local title = Instance.new("TextLabel", dialog)
-    title.Size = UDim2.new(1, -20, 0, 30)
-    title.Position = UDim2.new(0, 10, 0, 10)
+    -- 标题区域
+    local titleArea = Instance.new("Frame", dialog)
+    titleArea.Size = UDim2.new(1, 0, 0, 50)
+    titleArea.BackgroundColor3 = self.Theme.backgroundSecondary
+    titleArea.BorderSizePixel = 0
+    createCorner(titleArea, 12)
+    
+    -- 图标
+    local icon = "📄"
+    if resource.className:find("RemoteEvent") then icon = "📤"
+    elseif resource.className:find("RemoteFunction") then icon = "📥"
+    elseif resource.className:find("LocalScript") then icon = "📜"
+    elseif resource.className:find("ModuleScript") then icon = "📦"
+    elseif resource.className:find("Script") then icon = "📝"
+    end
+    
+    local iconLabel = Instance.new("TextLabel", titleArea)
+    iconLabel.Size = UDim2.new(0, 40, 1, 0)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Text = icon
+    iconLabel.TextSize = 22
+    iconLabel.Font = Enum.Font.Gotham
+    
+    local title = Instance.new("TextLabel", titleArea)
+    title.Size = UDim2.new(1, -70, 1, 0)
+    title.Position = UDim2.new(0, 40, 0, 0)
     title.BackgroundTransparency = 1
     title.Text = resource.name
     title.TextColor3 = self.Theme.text
-    title.TextSize = 16
+    title.TextSize = 15
     title.Font = Enum.Font.GothamBold
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.TextTruncate = Enum.TextTruncate.AtEnd
     
-    local info = Instance.new("TextLabel", dialog)
-    info.Size = UDim2.new(1, -20, 0, 20)
-    info.Position = UDim2.new(0, 10, 0, 40)
-    info.BackgroundTransparency = 1
-    info.Text = "类型: " .. resource.className .. " | 路径: " .. resource.path
-    info.TextColor3 = self.Theme.textSecondary
-    info.TextSize = 11
-    info.Font = Enum.Font.Gotham
-    info.TextXAlignment = Enum.TextXAlignment.Left
-    info.TextTruncate = Enum.TextTruncate.AtEnd
+    local subtitle = Instance.new("TextLabel", titleArea)
+    subtitle.Size = UDim2.new(1, -70, 0, 16)
+    subtitle.Position = UDim2.new(0, 40, 0, 30)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = resource.className
+    subtitle.TextColor3 = self.Theme.textMuted
+    subtitle.TextSize = 11
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextXAlignment = Enum.TextXAlignment.Left
     
-    local btnContainer = Instance.new("Frame", dialog)
-    btnContainer.Size = UDim2.new(1, -20, 0, 100)
-    btnContainer.Position = UDim2.new(0, 10, 0, 70)
-    btnContainer.BackgroundTransparency = 1
-    
-    local btnY = 0
-    local function addBtn(text, callback, color)
-        local btn = Instance.new("TextButton", btnContainer)
-        btn.Size = UDim2.new(1, 0, 0, 28)
-        btn.Position = UDim2.new(0, 0, 0, btnY)
-        btn.BackgroundColor3 = color or self.Theme.accent
-        btn.BorderSizePixel = 0
-        btn.Text = text
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.TextSize = 12
-        btn.Font = Enum.Font.GothamBold
-        createCorner(btn, 6)
-        
-        btn.MouseButton1Click:Connect(function()
-            overlay:Destroy()
-            if callback then callback() end
-        end)
-        
-        btnY = btnY + 32
-    end
-    
-    -- 根据类型显示不同操作
-    addBtn("📝 让AI分析此资源", callbacks.analyze, self.Theme.accent)
-    
-    if resource.className:find("Remote") then
-        addBtn("🔧 生成调用代码", callbacks.generateCode, self.Theme.success)
-    end
-    
-    if resource.className:find("Script") then
-        addBtn("📄 查看源码", callbacks.viewSource, Color3.fromRGB(100, 100, 200))
-    end
-    
-    local closeBtn = Instance.new("TextButton", dialog)
+    -- 关闭按钮
+    local closeBtn = Instance.new("TextButton", titleArea)
     closeBtn.Size = UDim2.new(0, 24, 0, 24)
-    closeBtn.Position = UDim2.new(1, -30, 0, 8)
+    closeBtn.Position = UDim2.new(1, -32, 0.5, -12)
     closeBtn.BackgroundColor3 = self.Theme.error
     closeBtn.BorderSizePixel = 0
-    closeBtn.Text = "X"
+    closeBtn.Text = "×"
     closeBtn.TextColor3 = Color3.new(1, 1, 1)
-    closeBtn.TextSize = 12
+    closeBtn.TextSize = 16
     closeBtn.Font = Enum.Font.GothamBold
     closeBtn.ZIndex = 202
     createCorner(closeBtn, 4)
     
-    closeBtn.MouseButton1Click:Connect(function()
+    local function close()
         overlay:Destroy()
-    end)
+    end
+    
+    closeBtn.MouseButton1Click:Connect(close)
+    
+    -- 按钮容器
+    local btnContainer = Instance.new("Frame", dialog)
+    btnContainer.Size = UDim2.new(1, -16, 1, -58)
+    btnContainer.Position = UDim2.new(0, 8, 0, 54)
+    btnContainer.BackgroundTransparency = 1
+    
+    local btnY = 0
+    
+    local function addBtn(text, callback, color, iconStr)
+        local btn = Instance.new("TextButton", btnContainer)
+        btn.Size = UDim2.new(1, 0, 0, 34)
+        btn.Position = UDim2.new(0, 0, 0, btnY)
+        btn.BackgroundColor3 = color or self.Theme.backgroundTertiary
+        btn.BorderSizePixel = 0
+        btn.Text = "  " .. (iconStr or "›") .. "  " .. text
+        btn.TextColor3 = color and Color3.new(1, 1, 1) or self.Theme.text
+        btn.TextSize = 12
+        btn.Font = Enum.Font.Gotham
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        createCorner(btn, 6)
+        
+        btn.MouseButton1Click:Connect(function()
+            close()
+            if callback then callback() end
+        end)
+        
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.accent}):Play()
+        end)
+        
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = color or self.Theme.backgroundTertiary}):Play()
+        end)
+        
+        btnY = btnY + 38
+    end
+    
+    local function addDivider()
+        local divider = Instance.new("Frame", btnContainer)
+        divider.Size = UDim2.new(1, -16, 0, 1)
+        divider.Position = UDim2.new(0, 8, 0, btnY + 4)
+        divider.BackgroundColor3 = self.Theme.border
+        divider.BorderSizePixel = 0
+        btnY = btnY + 12
+    end
+    
+    -- 主要操作
+    addBtn("让AI分析", callbacks.analyze, self.Theme.accent, "🤖")
+    
+    -- 根据类型显示不同操作
+    if resource.className:find("Remote") then
+        addBtn("生成调用代码", callbacks.generateCode, self.Theme.success, "🔧")
+    end
+    
+    if resource.className:find("Script") then
+        addBtn("查看源码", callbacks.viewSource, Color3.fromRGB(100, 120, 200), "📄")
+        addBtn("发送给AI分析", callbacks.sendToAI, self.Theme.accent, "📤")
+    end
+    
+    addDivider()
+    
+    -- 通用操作
+    addBtn("复制路径", function()
+        if setclipboard then
+            setclipboard(resource.path)
+        end
+        self:addSystemMessage("✅ 已复制路径: " .. resource.path)
+    end, nil, "📋")
+    
+    addBtn("复制名称", function()
+        if setclipboard then
+            setclipboard(resource.name)
+        end
+        self:addSystemMessage("✅ 已复制名称: " .. resource.name)
+    end, nil, "📝")
     
     -- 点击背景关闭
     overlay.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            overlay:Destroy()
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            close()
         end
     end)
     
     return dialog
+end
+
+-- 系统消息
+function UI:addSystemMessage(text)
+    self:addMessage("ℹ️ " .. text, false)
 end
 
 -- 资源列表项

@@ -215,6 +215,9 @@ function App:init()
     local ui = loadModule("modules/ui.lua")
     if ui then _G.AIAnalyzer.UI = ui; print("[AI CLI] UI OK") end
     
+    local tools = loadModule("modules/tools.lua")
+    if tools then _G.AIAnalyzer.Tools = tools; print("[AI CLI] Tools OK") end
+    
     local ai = loadModule("modules/ai_client.lua")
     if ai then _G.AIAnalyzer.AIClient = ai; print("[AI CLI] AIClient OK") end
     
@@ -788,6 +791,25 @@ function App:analyzeScript(scriptInfo)
                 end
             end
             ui:addMessage("⚠️ 无法读取该脚本源码，可能需要支持反编译的执行器", false)
+        end,
+        sendToAI = function()
+            -- 发送源码给AI分析
+            ui:showView("chat")
+            local instance = scriptInfo.instance
+            if instance and Reader and Reader:canDecompile() then
+                local scriptData = Reader:readScript(instance)
+                if scriptData and scriptData.source then
+                    local prompt = string.format(
+                        "请详细分析这段脚本的功能和逻辑：\n名称: %s\n路径: %s\n\n```lua\n%s\n```\n\n请解释：\n1. 这段代码的主要功能\n2. 关键变量和函数的作用\n3. 可能的用途或调用场景",
+                        scriptData.name, scriptData.path,
+                        scriptData.source:sub(1, 5000)
+                    )
+                    ui.inputBox.Text = prompt
+                    self:sendMessage()
+                    return
+                end
+            end
+            ui:addMessage("⚠️ 无法读取源码", false)
         end
     })
 end
