@@ -178,16 +178,16 @@ end
 
 -- 保存配置到全局（持久化）
 function Config:save()
-    local jsonData = game:GetService("HttpService"):JSONEncode({
+    local data = {
         currentProvider = self.Settings.currentProvider,
         providers = {}
-    })
+    }
     for name, provider in pairs(self.Providers) do
-        jsonData.providers = jsonData.providers or {}
-        jsonData.providers[name] = {
+        data.providers[name] = {
             apiKey = provider.apiKey
         }
     end
+    local jsonData = game:GetService("HttpService"):JSONEncode(data)
     getgenv().RobloxAIAnalyzerConfig = jsonData
 end
 
