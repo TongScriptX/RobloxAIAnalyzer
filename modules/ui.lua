@@ -1096,15 +1096,59 @@ function UI:createResourceView()
     resourceFrame.Size = UDim2.new(1, 0, 1, 0)
     resourceFrame.BackgroundTransparency = 1
     
+    -- 标签页容器
+    local tabContainer = Instance.new("Frame", resourceFrame)
+    tabContainer.Name = "TabContainer"
+    tabContainer.Size = UDim2.new(1, -16, 0, 36)
+    tabContainer.Position = UDim2.new(0, 8, 0, 8)
+    tabContainer.BackgroundTransparency = 1
+    
+    -- 标签页按钮布局
+    local tabLayout = Instance.new("UIListLayout", tabContainer)
+    tabLayout.FillDirection = Enum.FillDirection.Horizontal
+    tabLayout.Padding = UDim.new(0, 4)
+    
+    -- 创建标签页按钮
+    local tabs = {
+        {id = "all", text = "全部", icon = "📁"},
+        {id = "remotes", text = "Remote", icon = "📤"},
+        {id = "scripts", text = "Script", icon = "📜"},
+        {id = "others", text = "其他", icon = "📦"}
+    }
+    
+    self.resourceTabs = {}
+    self.currentResourceTab = "all"
+    
+    for _, tab in ipairs(tabs) do
+        local btn = Instance.new("TextButton", tabContainer)
+        btn.Name = tab.id .. "Tab"
+        btn.Size = UDim2.new(0, 80, 1, 0)
+        btn.BackgroundColor3 = tab.id == "all" and self.Theme.accent or self.Theme.backgroundSecondary
+        btn.BorderSizePixel = 0
+        btn.Text = tab.icon .. " " .. tab.text
+        btn.TextColor3 = tab.id == "all" and Color3.new(1, 1, 1) or self.Theme.text
+        btn.TextSize = 11
+        btn.Font = Enum.Font.GothamSemibold
+        createCorner(btn, 6)
+        
+        btn.MouseButton1Click:Connect(function()
+            self:switchResourceTab(tab.id)
+        end)
+        
+        self.resourceTabs[tab.id] = btn
+    end
+    
+    -- 工具栏
     local toolbar = Instance.new("Frame", resourceFrame)
     toolbar.Name = "Toolbar"
-    toolbar.Size = UDim2.new(1, -16, 0, 32)
-    toolbar.Position = UDim2.new(0, 8, 0, 8)
+    toolbar.Size = UDim2.new(1, -16, 0, 28)
+    toolbar.Position = UDim2.new(0, 8, 0, 48)
     toolbar.BackgroundTransparency = 1
     
+    -- 搜索框
     local searchBox = Instance.new("TextBox", toolbar)
     searchBox.Name = "SearchBox"
-    searchBox.Size = UDim2.new(1, -180, 1, 0)
+    searchBox.Size = UDim2.new(1, -80, 1, 0)
     searchBox.BackgroundColor3 = self.Theme.backgroundTertiary
     searchBox.BorderSizePixel = 0
     searchBox.PlaceholderText = "搜索资源..."
@@ -1116,15 +1160,11 @@ function UI:createResourceView()
     searchBox.TextXAlignment = Enum.TextXAlignment.Left
     createCorner(searchBox, 6)
     
-    local filterBtns = Instance.new("Frame", toolbar)
-    filterBtns.Size = UDim2.new(0, 90, 1, 0)
-    filterBtns.Position = UDim2.new(1, -90, 0, 0)
-    filterBtns.BackgroundTransparency = 1
-    
+    -- 扫描按钮
     local scanBtn = Instance.new("TextButton", toolbar)
     scanBtn.Name = "ScanButton"
     scanBtn.Size = UDim2.new(0, 60, 1, 0)
-    scanBtn.Position = UDim2.new(1, -160, 0, 0)
+    scanBtn.Position = UDim2.new(1, -60, 0, 0)
     scanBtn.BackgroundColor3 = self.Theme.accent
     scanBtn.BorderSizePixel = 0
     scanBtn.Text = "扫描"
@@ -1136,8 +1176,8 @@ function UI:createResourceView()
     -- 资源列表
     local resourceList = Instance.new("ScrollingFrame", resourceFrame)
     resourceList.Name = "ResourceList"
-    resourceList.Size = UDim2.new(1, -16, 1, -48)
-    resourceList.Position = UDim2.new(0, 8, 0, 44)
+    resourceList.Size = UDim2.new(1, -16, 1, -88)
+    resourceList.Position = UDim2.new(0, 8, 0, 80)
     resourceList.BackgroundColor3 = self.Theme.backgroundTertiary
     resourceList.BorderSizePixel = 0
     resourceList.ScrollBarThickness = 5
@@ -1149,8 +1189,9 @@ function UI:createResourceView()
     local listLayout = Instance.new("UIListLayout", resourceList)
     listLayout.Padding = UDim.new(0, 2)
     
-    -- 资源分类数据
-    self.resourceCategories = {
+    -- 存储资源数据
+    self.allResources = {
+        all = {},
         remotes = {},
         scripts = {},
         others = {}
@@ -1164,19 +1205,78 @@ function UI:createResourceView()
     return resourceFrame
 end
 
--- 添加分类标题
-function UI:addCategoryHeader(title, count)
-    local header = Instance.new("TextLabel", self.resourceList)
-    header.Size = UDim2.new(1, -8, 0, 24)
-    header.BackgroundColor3 = self.Theme.backgroundSecondary
-    header.BorderSizePixel = 0
-    header.Text = "  " .. title .. " (" .. count .. ")"
-    header.TextColor3 = self.Theme.accent
-    header.TextSize = 11
-    header.Font = Enum.Font.GothamBold
-    header.TextXAlignment = Enum.TextXAlignment.Left
-    createCorner(header, 4)
-    return header
+-- 切换资源标签页
+function UI:switchResourceTab(tabId)
+    if self.currentResourceTab == tabId then return end
+    
+    self.currentResourceTab = tabId
+    
+    -- 更新标签页样式
+    for id, btn in pairs(self.resourceTabs) do
+        if id == tabId then
+            btn.BackgroundColor3 = self.Theme.accent
+            btn.TextColor3 = Color3.new(1, 1, 1)
+        else
+            btn.BackgroundColor3 = self.Theme.backgroundSecondary
+            btn.TextColor3 = self.Theme.text
+        end
+    end
+    
+    -- 刷新资源列表
+    self:refreshResourceList()
+end
+
+-- 刷新资源列表显示
+function UI:refreshResourceList()
+    -- 清空当前列表
+    for _, child in pairs(self.resourceList:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child:Destroy()
+        end
+    end
+    
+    -- 获取当前分类的资源
+    local resources = self.allResources[self.currentResourceTab] or {}
+    local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
+    
+    for _, res in ipairs(resources) do
+        -- 搜索过滤
+        if searchQuery == "" or 
+           res.name:lower():find(searchQuery, 1, true) or 
+           res.className:lower():find(searchQuery, 1, true) then
+            self:addResourceItem(res.name, res.className, res.path, res.onClick)
+        end
+    end
+end
+
+-- 添加资源到分类
+function UI:addResourceToCategory(name, className, path, onClick)
+    local resource = {
+        name = name,
+        className = className,
+        path = path,
+        onClick = onClick
+    }
+    
+    -- 添加到全部
+    table.insert(self.allResources.all, resource)
+    
+    -- 根据类型分类
+    if className:find("Remote") then
+        table.insert(self.allResources.remotes, resource)
+    elseif className:find("Script") then
+        table.insert(self.allResources.scripts, resource)
+    else
+        table.insert(self.allResources.others, resource)
+    end
+    
+    -- 如果当前标签页匹配，直接显示
+    if self.currentResourceTab == "all" or
+       (self.currentResourceTab == "remotes" and className:find("Remote")) or
+       (self.currentResourceTab == "scripts" and className:find("Script")) or
+       (self.currentResourceTab == "others" and not className:find("Remote") and not className:find("Script")) then
+        self:addResourceItem(name, className, path, onClick)
+    end
 end
 
 -- 资源操作弹窗

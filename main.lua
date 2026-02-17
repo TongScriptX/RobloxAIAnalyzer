@@ -615,16 +615,24 @@ function App:scanResources()
         local results = Scanner:scan()
         local stats = Scanner:getStats()
         
+        -- 清空资源数据
+        ui.allResources = {
+            all = {},
+            remotes = {},
+            scripts = {},
+            others = {}
+        }
         ui:clearResourceList()
         
+        -- 添加资源到分类
         for _, remote in ipairs(results.remotes) do
-            ui:addResourceItem(remote.name, remote.className, remote.path, function()
+            ui:addResourceToCategory(remote.name, remote.className, remote.path, function()
                 self:analyzeResource(remote)
             end)
         end
         
         for _, script in ipairs(results.scripts) do
-            ui:addResourceItem(script.name, script.className, script.path, function()
+            ui:addResourceToCategory(script.name, script.className, script.path, function()
                 self:analyzeScript(script)
             end)
         end
@@ -638,18 +646,7 @@ end
 
 function App:searchResources(query)
     local ui = _G.AIAnalyzer.UI
-    local Scanner = _G.AIAnalyzer.Scanner
-    
-    if query == "" or not Scanner then return end
-    
-    local results = Scanner:search(query)
-    ui:clearResourceList()
-    
-    for _, obj in ipairs(results) do
-        ui:addResourceItem(obj.name, obj.className, obj.path, function()
-            self:analyzeResource(obj)
-        end)
-    end
+    ui:refreshResourceList()
 end
 
 function App:analyzeResource(resource)
@@ -677,21 +674,19 @@ function App:analyzeResource(resource)
             self:sendMessage()
         end,
         viewSource = function()
-            -- 查看源码
-            if Reader and Reader:canDecompile() then
-                local obj = game:FindFirstChild(resource.path, true)
-                if obj then
-                    local source = Reader:readScript(obj)
-                    if source then
-                        ui:showView("chat")
-                        local prompt = string.format(
-                            "脚本源码 (%s)：\n```\n%s\n```\n\n请分析这段代码的功能。",
-                            resource.name, source.source or source
-                        )
-                        ui.inputBox.Text = prompt
-                        self:sendMessage()
-                        return
-                    end
+            -- 使用实例引用查看源码
+            local instance = resource.instance
+            if instance and Reader and Reader:canDecompile() then
+                local source = Reader:readScript(instance)
+                if source and source.source then
+                    ui:showView("chat")
+                    local prompt = string.format(
+                        "脚本源码 (%s)：\n```lua\n%s\n```\n\n请分析这段代码的功能。",
+                        resource.name, source.source:sub(1, 4000)
+                    )
+                    ui.inputBox.Text = prompt
+                    self:sendMessage()
+                    return
                 end
             end
             ui:addMessage("⚠️ 无法读取该资源源码", false)
@@ -708,27 +703,24 @@ function App:analyzeScript(scriptInfo)
         analyze = function()
             ui:showView("chat")
             
-            if Reader and Reader:canDecompile() then
-                local scripts = Reader:getAllScripts()
-                for _, s in ipairs(scripts) do
-                    if s.Name == scriptInfo.name then
-                        local scriptData = Reader:readScript(s)
-                        if scriptData then
-                            local prompt = string.format(
-                                "请分析这个脚本：\n名称: %s\n类型: %s\n路径: %s\n\n源码:\n```\n%s\n```",
-                                scriptData.name, scriptData.className, scriptData.path,
-                                scriptData.source:sub(1, 3000)
-                            )
-                            ui.inputBox.Text = prompt
-                            self:sendMessage()
-                            return
-                        end
-                    end
+            -- 使用实例引用读取源码
+            local instance = scriptInfo.instance
+            if instance and Reader and Reader:canDecompile() then
+                local scriptData = Reader:readScript(instance)
+                if scriptData and scriptData.source then
+                    local prompt = string.format(
+                        "请分析这个脚本：\n名称: %s\n类型: %s\n路径: %s\n\n源码:\n```lua\n%s\n```",
+                        scriptData.name, scriptData.className, scriptData.path,
+                        scriptData.source:sub(1, 4000)
+                    )
+                    ui.inputBox.Text = prompt
+                    self:sendMessage()
+                    return
                 end
             end
             
             local prompt = string.format(
-                "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s\n\n（无法读取源码）",
+                "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s\n\n（无法读取源码，可能需要支持反编译的执行器）",
                 scriptInfo.name, scriptInfo.className, scriptInfo.path
             )
             ui.inputBox.Text = prompt
@@ -739,19 +731,17 @@ function App:analyzeScript(scriptInfo)
             ui:addMessage("⚠️ 脚本类型资源不支持生成调用代码", false)
         end,
         viewSource = function()
-            if Reader and Reader:canDecompile() then
-                local obj = game:FindFirstChild(scriptInfo.path, true)
-                if obj then
-                    local source = Reader:readScript(obj)
-                    if source then
-                        ui:showView("chat")
-                        ui:addMessage(string.format("📄 %s 源码:\n```\n%s\n```", 
-                            scriptInfo.name, source.source or source), false)
-                        return
-                    end
+            local instance = scriptInfo.instance
+            if instance and Reader and Reader:canDecompile() then
+                local source = Reader:readScript(instance)
+                if source and source.source then
+                    ui:showView("chat")
+                    ui:addMessage(string.format("📄 %s 源码:\n```lua\n%s\n```", 
+                        scriptInfo.name, source.source), false)
+                    return
                 end
             end
-            ui:addMessage("⚠️ 无法读取该脚本源码", false)
+            ui:addMessage("⚠️ 无法读取该脚本源码，可能需要支持反编译的执行器", false)
         end
     })
 end

@@ -1,13 +1,5 @@
---[[
-    Roblox AI Resource Analyzer - Scanner Module
-    Version: 1.0.0
-    
-    资源扫描模块：遍历游戏内所有可访问的资源对象
-]]
-
+-- Scanner模块 - 资源扫描
 local Scanner = {}
-
-local HttpService = game:GetService("HttpService")
 
 -- 扫描配置
 Scanner.config = {
@@ -40,6 +32,7 @@ Scanner.cache = {
     objects = {},
     remotes = {},
     scripts = {},
+    instances = {},  -- 保存实例引用
     lastScanTime = 0,
     isValid = false
 }
@@ -51,8 +44,8 @@ local function createObjectInfo(instance, path, depth)
         className = instance.ClassName,
         path = path,
         depth = depth,
+        instance = instance,  -- 保存实例引用
         children = {},
-        -- 属性信息（简化版）
         properties = {}
     }
 end
@@ -61,14 +54,12 @@ end
 local function getProperties(instance)
     local props = {}
     
-    -- 通用属性
     pcall(function()
         if instance.Value ~= nil then
             props.Value = tostring(instance.Value)
         end
     end)
     
-    -- Remote相关
     pcall(function()
         if instance:IsA("RemoteFunction") then
             props.invokeEnabled = true
@@ -78,14 +69,12 @@ local function getProperties(instance)
         end
     end)
     
-    -- Script相关
     pcall(function()
         if instance:IsA("Script") or instance:IsA("LocalScript") or instance:IsA("ModuleScript") then
             props.disabled = instance.Disabled
         end
     end)
     
-    -- Part相关
     pcall(function()
         if instance:IsA("BasePart") then
             props.position = tostring(instance.Position)
@@ -95,7 +84,6 @@ local function getProperties(instance)
         end
     end)
     
-    -- GUI相关
     pcall(function()
         if instance:IsA("GuiObject") then
             props.visible = instance.Visible
@@ -105,28 +93,20 @@ local function getProperties(instance)
     return props
 end
 
--- 递归扫描实例
+-- 递归扫描
 local function scanInstance(instance, path, depth, results, counters)
-    if counters.total >= Scanner.config.maxObjects then
-        return
-    end
-    
-    if depth > Scanner.config.maxDepth then
-        return
-    end
+    if counters.total >= Scanner.config.maxObjects then return end
+    if depth > Scanner.config.maxDepth then return end
     
     local currentPath = path .. "." .. instance.Name
     counters.total = counters.total + 1
     
-    -- 创建对象信息
     local objInfo = createObjectInfo(instance, currentPath, depth)
     objInfo.properties = getProperties(instance)
     
-    -- 检查是否为重点关注类型
     if Scanner.config.focusTypes[instance.ClassName] then
         table.insert(results.focused, objInfo)
         
-        -- 分类存储
         if instance.ClassName == "RemoteEvent" or instance.ClassName == "RemoteFunction" then
             table.insert(results.remotes, objInfo)
         elseif instance.ClassName == "LocalScript" or instance.ClassName == "Script" or instance.ClassName == "ModuleScript" then
@@ -134,11 +114,11 @@ local function scanInstance(instance, path, depth, results, counters)
         end
     end
     
-    -- 存储所有对象（简化版，只存储名字和类型）
     table.insert(results.all, {
         name = instance.Name,
         className = instance.ClassName,
-        path = currentPath
+        path = currentPath,
+        instance = instance
     })
     
     -- 递归扫描子对象

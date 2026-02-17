@@ -1,8 +1,4 @@
---[[
-    Roblox AI CLI Config
-    v1.1.0
-]]
-
+-- Config模块 - Roblox AI CLI v1.1.0
 local Config = {}
 
 local HttpService = game:GetService("HttpService")
@@ -267,8 +263,17 @@ function Config:listSavedScripts()
     return list
 end
 
--- 保存配置到getgenv
+-- 保存配置到文件
 function Config:save()
+    if not writefile then
+        -- 回退到 getgenv
+        getgenv().RobloxAIAnalyzerConfig = HttpService:JSONEncode({
+            currentProvider = self.Settings.currentProvider,
+            providers = {[self.Settings.currentProvider] = {apiKey = self:getCurrentProvider().apiKey}}
+        })
+        return false
+    end
+    
     local data = {
         currentProvider = self.Settings.currentProvider,
         providers = {},
@@ -285,21 +290,52 @@ function Config:save()
         data.providers[name] = {apiKey = p.apiKey}
     end
     
-    getgenv().RobloxAIAnalyzerConfig = HttpService:JSONEncode(data)
+    pcall(function()
+        writefile("RobloxAIAnalyzer/config.json", HttpService:JSONEncode(data))
+    end)
+    
+    return true
 end
 
--- 保存历史
+-- 保存历史到文件
 function Config:saveHistory()
+    if not writefile then
+        getgenv().RobloxAIAnalyzerHistory = HttpService:JSONEncode({
+            conversations = self.History.conversations
+        })
+        return false
+    end
+    
     local data = {
         conversations = self.History.conversations,
         executedScripts = self.History.executedScripts,
         savedScripts = self.History.savedScripts
     }
-    getgenv().RobloxAIAnalyzerHistory = HttpService:JSONEncode(data)
+    
+    pcall(function()
+        writefile("RobloxAIAnalyzer/history.json", HttpService:JSONEncode(data))
+    end)
+    
+    return true
 end
 
--- 加载历史（供外部调用）
+-- 加载历史
 function Config:loadHistory()
+    if readfile then
+        local ok, content = pcall(function()
+            return readfile("RobloxAIAnalyzer/history.json")
+        end)
+        if ok and content then
+            local ok2, data = pcall(function()
+                return HttpService:JSONDecode(content)
+            end)
+            if ok2 and data then
+                return data.conversations or {}
+            end
+        end
+    end
+    
+    -- 回退到 getgenv
     local saved = getgenv().RobloxAIAnalyzerHistory
     if saved then
         local ok, data = pcall(function()
@@ -314,45 +350,74 @@ end
 
 -- 加载配置
 function Config:load()
-    local saved = getgenv().RobloxAIAnalyzerConfig
-    if saved then
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(saved)
+    -- 先尝试从文件加载
+    if readfile then
+        local ok, content = pcall(function()
+            return readfile("RobloxAIAnalyzer/config.json")
         end)
-        if ok and data then
-            if data.currentProvider then
-                self.Settings.currentProvider = data.currentProvider
+        
+        if ok and content then
+            local ok2, data = pcall(function()
+                return HttpService:JSONDecode(content)
+            end)
+            
+            if ok2 and data then
+                if data.currentProvider then
+                    self.Settings.currentProvider = data.currentProvider
+                end
+                if data.providers then
+                    for name, pData in pairs(data.providers) do
+                        if self.Providers[name] and pData.apiKey then
+                            self.Providers[name].apiKey = pData.apiKey
+                        end
+                    end
+                end
+                if data.executorConfig and data.executorConfig.scriptDir then
+                    self.ExecutorConfig.scriptDir = data.executorConfig.scriptDir
+                end
+                if data.settings then
+                    local s = data.settings
+                    if s.autoExecute ~= nil then self.Settings.autoExecute = s.autoExecute end
+                    if s.confirmBeforeExecute ~= nil then self.Settings.confirmBeforeExecute = s.confirmBeforeExecute end
+                    if s.saveGeneratedScript ~= nil then self.Settings.saveGeneratedScript = s.saveGeneratedScript end
+                end
             end
-            if data.providers then
-                for name, pData in pairs(data.providers) do
-                    if self.Providers[name] and pData.apiKey then
-                        self.Providers[name].apiKey = pData.apiKey
+        end
+        
+        -- 加载历史
+        local ok3, historyContent = pcall(function()
+            return readfile("RobloxAIAnalyzer/history.json")
+        end)
+        
+        if ok3 and historyContent then
+            local ok4, data = pcall(function()
+                return HttpService:JSONDecode(historyContent)
+            end)
+            if ok4 and data then
+                if data.conversations then self.History.conversations = data.conversations end
+                if data.executedScripts then self.History.executedScripts = data.executedScripts end
+                if data.savedScripts then self.History.savedScripts = data.savedScripts end
+            end
+        end
+    else
+        -- 回退到 getgenv
+        local saved = getgenv().RobloxAIAnalyzerConfig
+        if saved then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(saved)
+            end)
+            if ok and data then
+                if data.currentProvider then
+                    self.Settings.currentProvider = data.currentProvider
+                end
+                if data.providers then
+                    for name, pData in pairs(data.providers) do
+                        if self.Providers[name] and pData.apiKey then
+                            self.Providers[name].apiKey = pData.apiKey
+                        end
                     end
                 end
             end
-            if data.executorConfig and data.executorConfig.scriptDir then
-                self.ExecutorConfig.scriptDir = data.executorConfig.scriptDir
-            end
-            if data.settings then
-                -- 批量更新设置
-                local s = data.settings
-                if s.autoExecute ~= nil then self.Settings.autoExecute = s.autoExecute end
-                if s.confirmBeforeExecute ~= nil then self.Settings.confirmBeforeExecute = s.confirmBeforeExecute end
-                if s.saveGeneratedScript ~= nil then self.Settings.saveGeneratedScript = s.saveGeneratedScript end
-            end
-        end
-    end
-    
-    -- 加载历史
-    local savedHistory = getgenv().RobloxAIAnalyzerHistory
-    if savedHistory then
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(savedHistory)
-        end)
-        if ok and data then
-            if data.conversations then self.History.conversations = data.conversations end
-            if data.executedScripts then self.History.executedScripts = data.executedScripts end
-            if data.savedScripts then self.History.savedScripts = data.savedScripts end
         end
     end
     

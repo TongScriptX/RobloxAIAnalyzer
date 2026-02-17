@@ -1,15 +1,8 @@
---[[
-    Roblox AI Resource Analyzer - Script Reader Module
-    Version: 1.0.0
-    
-    脚本读取模块：读取游戏内脚本源码
-]]
-
+-- Reader模块 - 脚本读取
 local Reader = {}
 
--- 检测可用的反编译函数
+-- 检测反编译函数
 local function detectDecompiler()
-    -- 检查各种执行器的反编译函数
     if decompile then
         return "decompile", decompile
     end
@@ -67,10 +60,8 @@ end
 
 Reader.getScriptsFunc = detectGetScripts()
 
--- 脚本缓存
 Reader.cache = {}
 
--- 获取所有脚本实例
 function Reader:getAllScripts()
     local success, scripts = pcall(self.getScriptsFunc)
     if success then
@@ -79,28 +70,24 @@ function Reader:getAllScripts()
     return {}
 end
 
--- 读取单个脚本源码
 function Reader:readScript(scriptInstance)
     if not scriptInstance then
         return nil, "Invalid script instance"
     end
     
-    -- 检查缓存
     local cacheKey = tostring(scriptInstance)
     if self.cache[cacheKey] then
         return self.cache[cacheKey]
     end
     
-    -- 检查是否有反编译函数
     if not self.decompileFunc then
-        return nil, "No decompiler available in this environment"
+        return nil, "No decompiler available"
     end
     
-    -- 尝试反编译
     local success, source = pcall(self.decompileFunc, scriptInstance)
     
-    if success and source then
-        self.cache[cacheKey] = {
+    if success and source and #source > 0 then
+        local result = {
             name = scriptInstance.Name,
             className = scriptInstance.ClassName,
             path = self:getScriptPath(scriptInstance),
@@ -108,7 +95,8 @@ function Reader:readScript(scriptInstance)
             size = #source,
             lines = select(2, source:gsub("\n", "\n")) + 1
         }
-        return self.cache[cacheKey]
+        self.cache[cacheKey] = result
+        return result
     end
     
     return nil, "Failed to decompile: " .. tostring(source)
