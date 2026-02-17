@@ -1,9 +1,6 @@
 --[[
     Roblox AI Resource Analyzer
     Version: 1.0.0
-    Author: AI Assistant
-    
-    主入口文件：整合所有模块，提供完整的AI资源分析功能
     
     使用方法：
     1. 在脚本执行器中运行此文件
@@ -12,34 +9,92 @@
     4. 在聊天界面与AI交互
 ]]
 
--- 主程序入口
+local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
+
+-- 主程序
 local RobloxAIAnalyzer = {
     Version = "1.0.0",
     Initialized = false
 }
 
--- 加载模块
-local function loadModule(path)
-    local success, module = pcall(function()
-        return loadfile(path)()
-    end)
-    
-    if success then
-        return module
-    else
-        warn("Failed to load module: " .. path)
-        return nil
+-- 检测并获取HTTP请求函数
+local function getHttpFunc()
+    if game:FindService("HttpService") then
+        -- 检查各种执行器的HTTP函数
+        if syn and syn.request then
+            return function(url)
+                local resp = syn.request({Url = url, Method = "GET"})
+                return resp.Body, resp.StatusCode
+            end
+        elseif request then
+            return function(url)
+                local resp = request({Url = url, Method = "GET"})
+                return resp.Body or resp.body, resp.StatusCode or resp.statusCode
+            end
+        elseif http and http.request then
+            return function(url)
+                local resp = http.request({Url = url, Method = "GET"})
+                return resp.Body or resp.body, resp.StatusCode or resp.statusCode
+            end
+        elseif http_request then
+            return function(url)
+                local resp = http_request({Url = url, Method = "GET"})
+                return resp.Body or resp.body, resp.StatusCode or resp.statusCode
+            end
+        elseif fluxus and fluxus.request then
+            return function(url)
+                local resp = fluxus.request({Url = url, Method = "GET"})
+                return resp.Body or resp.body, resp.StatusCode or resp.statusCode
+            end
+        end
     end
+    return nil
 end
 
--- 模块引用
-local Config = loadModule("config.lua")
-local Http = loadModule("modules/http.lua")
-local Scanner = loadModule("modules/scanner.lua")
-local Reader = loadModule("modules/reader.lua")
-local AIClient = loadModule("modules/ai_client.lua")
-local Executor = loadModule("modules/executor.lua")
-local UI = loadModule("modules/ui.lua")
+local httpGet = getHttpFunc()
+
+-- 从GitHub加载模块
+local function loadFromGitHub(path)
+    if not httpGet then
+        warn("[AI Analyzer] HTTP请求不可用")
+        return nil
+    end
+    
+    local url = BASE_URL .. "/" .. path
+    local success, result = pcall(httpGet, url)
+    
+    if success and result then
+        local compileSuccess, compiled = pcall(loadstring, result)
+        if compileSuccess and compiled then
+            return compiled()
+        else
+            warn("[AI Analyzer] 模块编译失败: " .. path)
+        end
+    else
+        warn("[AI Analyzer] 模块加载失败: " .. path)
+    end
+    
+    return nil
+end
+
+print("[AI Analyzer] 正在加载模块...")
+
+-- 加载所有模块
+local Config = loadFromGitHub("config.lua")
+local Http = loadFromGitHub("modules/http.lua")
+local Scanner = loadFromGitHub("modules/scanner.lua")
+local Reader = loadFromGitHub("modules/reader.lua")
+local AIClient = loadFromGitHub("modules/ai_client.lua")
+local Executor = loadFromGitHub("modules/executor.lua")
+local UI = loadFromGitHub("modules/ui.lua")
+
+-- 检查模块加载状态
+local modulesLoaded = Config and Http and Scanner and Reader and AIClient and Executor and UI
+
+if not modulesLoaded then
+    warn("[AI Analyzer] 部分模块加载失败，使用内置备用模块...")
+    -- 这里可以添加备用逻辑
+end
 
 -- 初始化函数
 function RobloxAIAnalyzer:Init()
@@ -48,6 +103,11 @@ function RobloxAIAnalyzer:Init()
     end
     
     print("[AI Analyzer] Initializing v" .. self.Version)
+    
+    if not UI then
+        warn("[AI Analyzer] UI模块未加载，无法启动")
+        return
+    end
     
     -- 加载保存的配置
     if Config and Config.load then
@@ -69,10 +129,8 @@ end
 
 -- 创建界面
 function RobloxAIAnalyzer:createInterface()
-    -- 创建主窗口
     UI:createMainWindow()
     
-    -- 创建侧边栏按钮
     UI:createSidebarButton("AI 对话", "💬", function()
         UI:showView("chat")
     end)
@@ -85,21 +143,16 @@ function RobloxAIAnalyzer:createInterface()
         UI:showView("settings")
     end)
     
-    -- 创建各个视图
     UI:createChatView()
     UI:createSettingsView()
     UI:createResourceView()
     
-    -- 默认显示聊天视图
     UI:showView("chat")
-    
-    -- 更新状态
     self:updateConnectionStatus()
 end
 
 -- 绑定事件
 function RobloxAIAnalyzer:bindEvents()
-    -- 发送消息事件
     UI.sendBtn.MouseButton1Click:Connect(function()
         self:sendMessage()
     end)
@@ -110,17 +163,14 @@ function RobloxAIAnalyzer:bindEvents()
         end
     end)
     
-    -- 设置保存事件
     UI.saveSettingsBtn.MouseButton1Click:Connect(function()
         self:saveSettings()
     end)
     
-    -- 测试连接事件
     UI.testConnectionBtn.MouseButton1Click:Connect(function()
         self:testConnection()
     end)
     
-    -- Provider切换事件
     UI.providerButtons.deepseek.MouseButton1Click:Connect(function()
         self:switchProvider("DeepSeek")
     end)
@@ -129,12 +179,10 @@ function RobloxAIAnalyzer:bindEvents()
         self:switchProvider("OpenAI")
     end)
     
-    -- 扫描按钮事件
     UI.scanBtn.MouseButton1Click:Connect(function()
         self:scanResources()
     end)
     
-    -- 资源搜索事件
     UI.resourceSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         self:searchResources(UI.resourceSearchBox.Text)
     end)
@@ -170,13 +218,9 @@ function RobloxAIAnalyzer:sendMessage()
         return
     end
     
-    -- 清空输入框
     UI.inputBox.Text = ""
-    
-    -- 显示用户消息
     UI:addMessage(text, true)
     
-    -- 处理特殊命令
     if text:lower() == "帮助" or text:lower() == "help" then
         self:showHelp()
         return
@@ -192,7 +236,6 @@ function RobloxAIAnalyzer:sendMessage()
         return
     end
     
-    -- 发送到AI
     self:sendToAI(text)
 end
 
@@ -210,35 +253,30 @@ AI使用技巧：
 • "分析Remote：XXX" - 分析指定的Remote
 • "找到所有GUI" - 搜索特定类型资源
 • "生成自动点击代码" - 让AI生成代码
-• "解释这个脚本：路径" - 分析脚本功能
-
-资源浏览：
-• 点击侧边栏"资源浏览"
-• 使用搜索框筛选资源
-• 点击资源项查看详情]], false)
+• "解释这个脚本：路径" - 分析脚本功能]], false)
 end
 
 -- 发送到AI处理
 function RobloxAIAnalyzer:sendToAI(query)
-    -- 检查API配置
+    if not Config or not AIClient then
+        UI:addMessage("❌ 模块未正确加载", false)
+        return
+    end
+    
     local provider = Config:getCurrentProvider()
     if not provider.apiKey or provider.apiKey == "" then
         UI:addMessage("⚠️ 请先在设置页面配置API Key", false)
         return
     end
     
-    -- 获取资源上下文
-    local context = Scanner:toAIContext(50)
+    local context = Scanner and Scanner:toAIContext(50) or {}
     
-    -- 显示加载提示
     UI:addMessage("⏳ 正在思考...", false)
     local loadingMsg = UI.messageArea:FindFirstChildWhichIsA("Frame", true)
     
-    -- 调用AI
     spawn(function()
         local result, err = AIClient:analyzeResources(query, context)
         
-        -- 移除加载提示
         if loadingMsg then
             loadingMsg:Destroy()
         end
@@ -253,6 +291,11 @@ end
 
 -- 扫描资源
 function RobloxAIAnalyzer:scanResources()
+    if not Scanner then
+        UI:addMessage("❌ Scanner模块未加载", false)
+        return
+    end
+    
     UI:addMessage("🔍 正在扫描游戏资源...", false)
     
     spawn(function()
@@ -261,14 +304,12 @@ function RobloxAIAnalyzer:scanResources()
         
         UI:clearResourceList()
         
-        -- 添加Remote资源
         for _, remote in ipairs(results.remotes) do
             UI:addResourceItem(remote.name, remote.className, remote.path, function()
                 self:analyzeResource(remote)
             end)
         end
         
-        -- 添加Script资源
         for _, script in ipairs(results.scripts) do
             UI:addResourceItem(script.name, script.className, script.path, function()
                 self:analyzeScript(script)
@@ -284,12 +325,9 @@ end
 
 -- 搜索资源
 function RobloxAIAnalyzer:searchResources(query)
-    if query == "" then
-        return
-    end
+    if query == "" or not Scanner then return end
     
     local results = Scanner:search(query)
-    
     UI:clearResourceList()
     
     for _, obj in ipairs(results) do
@@ -316,8 +354,7 @@ end
 function RobloxAIAnalyzer:analyzeScript(scriptInfo)
     UI:showView("chat")
     
-    -- 尝试读取脚本源码
-    local scripts = Reader:getAllScripts()
+    local scripts = Reader and Reader:getAllScripts() or {}
     local targetScript = nil
     
     for _, s in ipairs(scripts) do
@@ -327,7 +364,7 @@ function RobloxAIAnalyzer:analyzeScript(scriptInfo)
         end
     end
     
-    if targetScript and Reader:canDecompile() then
+    if targetScript and Reader and Reader:canDecompile() then
         local scriptData = Reader:readScript(targetScript)
         if scriptData then
             local prompt = string.format(
@@ -342,7 +379,6 @@ function RobloxAIAnalyzer:analyzeScript(scriptInfo)
         end
     end
     
-    -- 无法读取源码时的处理
     local prompt = string.format(
         "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s\n\n（无法读取源码）",
         scriptInfo.name, scriptInfo.className, scriptInfo.path
@@ -354,6 +390,11 @@ end
 
 -- 保存设置
 function RobloxAIAnalyzer:saveSettings()
+    if not Config then
+        UI:addMessage("❌ Config模块未加载", false)
+        return
+    end
+    
     local apiKey = UI.apiKeyInput.Text
     local currentProvider = Config.Settings.currentProvider
     
@@ -370,6 +411,11 @@ end
 
 -- 测试连接
 function RobloxAIAnalyzer:testConnection()
+    if not AIClient then
+        UI:addMessage("❌ AIClient模块未加载", false)
+        return
+    end
+    
     UI:addMessage("🔍 正在测试API连接...", false)
     
     spawn(function()
@@ -387,9 +433,10 @@ end
 
 -- 切换提供商
 function RobloxAIAnalyzer:switchProvider(providerName)
+    if not Config then return end
+    
     Config:switchProvider(providerName)
     
-    -- 更新按钮样式
     for name, btn in pairs(UI.providerButtons) do
         if name:lower() == providerName:lower() then
             btn.BackgroundColor3 = UI.Theme.accent
@@ -400,7 +447,6 @@ function RobloxAIAnalyzer:switchProvider(providerName)
         end
     end
     
-    -- 更新API Key输入框
     local provider = Config:getCurrentProvider()
     UI.apiKeyInput.Text = provider.apiKey or ""
     
@@ -409,6 +455,8 @@ end
 
 -- 更新连接状态
 function RobloxAIAnalyzer:updateConnectionStatus()
+    if not Config then return end
+    
     local provider = Config:getCurrentProvider()
     
     if provider.apiKey and provider.apiKey ~= "" then
@@ -418,48 +466,7 @@ function RobloxAIAnalyzer:updateConnectionStatus()
     end
 end
 
--- 执行代码（用于AI生成的代码）
-function RobloxAIAnalyzer:executeCode(code)
-    if not Executor:canExecute() then
-        UI:addMessage("❌ 当前环境不支持代码执行", false)
-        return
-    end
-    
-    -- 验证代码
-    local warnings = Executor:validateCode(code)
-    if #warnings > 0 then
-        UI:addMessage("⚠️ 代码安全警告:", false)
-        for _, warning in ipairs(warnings) do
-            UI:addMessage("  • [" .. warning.level .. "] " .. warning.message, false)
-        end
-    end
-    
-    -- 执行代码
-    local success, result = Executor:safeExecute(code)
-    
-    if success then
-        UI:addMessage("✅ 代码执行成功", false)
-        if result then
-            UI:addMessage("返回值: " .. tostring(result), false)
-        end
-    else
-        UI:addMessage("❌ 执行失败: " .. tostring(result), false)
-    end
-end
-
--- 环境检测
-function RobloxAIAnalyzer:detectEnvironment()
-    local envInfo = {
-        executor = Http:getExecutorInfo(),
-        reader = Reader:getEnvInfo(),
-        executorModule = Executor:getInfo()
-    }
-    
-    return envInfo
-end
-
 -- 启动程序
 RobloxAIAnalyzer:Init()
 
--- 返回模块引用
 return RobloxAIAnalyzer
