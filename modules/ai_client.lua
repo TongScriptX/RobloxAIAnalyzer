@@ -3,40 +3,35 @@
     Version: 1.0.0
     
     AI API客户端：支持DeepSeek和OpenAI
+    依赖：Config, Http (通过全局 _G.AIAnalyzer 传递)
 ]]
 
 local AIClient = {}
 
 local HttpService = game:GetService("HttpService")
 
--- 加载依赖模块
-local HttpModule = loadfile("modules/http.lua")()
-local Config = loadfile("config.lua")()
+-- 从全局获取依赖（由main.lua设置）
+local function getDeps()
+    local deps = _G.AIAnalyzer or {}
+    return deps.Config, deps.Http
+end
 
 -- 对话历史
 AIClient.conversationHistory = {}
-
--- 最大历史消息数
 AIClient.maxHistoryLength = 20
 
 -- 创建请求体
 local function createRequestBody(provider, messages, options)
+    local Config = getDeps()
     options = options or {}
     
-    local body = {
+    return {
         model = options.model or provider.defaultModel,
         messages = messages,
-        max_tokens = options.maxTokens or Config.Settings.maxTokens,
-        temperature = options.temperature or Config.Settings.temperature,
+        max_tokens = options.maxTokens or (Config and Config.Settings and Config.Settings.maxTokens) or 4096,
+        temperature = options.temperature or (Config and Config.Settings and Config.Settings.temperature) or 0.7,
         stream = false
     }
-    
-    -- DeepSeek特有参数
-    if provider.name == "DeepSeek" then
-        -- 可以添加DeepSeek特有参数
-    end
-    
-    return body
 end
 
 -- 创建请求头
@@ -49,50 +44,40 @@ end
 
 -- 发送聊天请求
 function AIClient:chat(userMessage, systemPrompt, options)
+    local Config, Http = getDeps()
     options = options or {}
     
-    -- 获取当前提供商配置
+    if not Config then
+        return nil, "Config module not loaded"
+    end
+    
     local provider = Config:getCurrentProvider()
     
-    -- 检查API Key
     if not provider.apiKey or provider.apiKey == "" then
         return nil, "API Key not configured for " .. provider.name
     end
     
-    -- 检查HTTP支持
-    if not HttpModule:canRequestExternal() then
-        return nil, "External HTTP requests not supported in this environment (" .. HttpModule.executor.name .. ")"
+    if not Http or not Http:canRequestExternal() then
+        return nil, "External HTTP requests not supported"
     end
     
-    -- 构建消息列表
     local messages = {}
     
-    -- 添加系统提示词
     if systemPrompt then
-        table.insert(messages, {
-            role = "system",
-            content = systemPrompt
-        })
+        table.insert(messages, {role = "system", content = systemPrompt})
     end
     
-    -- 添加历史对话
     for _, msg in ipairs(self.conversationHistory) do
         table.insert(messages, msg)
     end
     
-    -- 添加用户消息
-    table.insert(messages, {
-        role = "user",
-        content = userMessage
-    })
+    table.insert(messages, {role = "user", content = userMessage})
     
-    -- 创建请求
     local url = provider.baseUrl .. provider.endpoint
     local body = createRequestBody(provider, messages, options)
     local headers = createHeaders(provider)
     
-    -- 发送请求
-    local response = HttpModule:jsonRequest(url, "POST", body, headers)
+    local response = Http:jsonRequest(url, "POST", body, headers)
     
     if not response.success then
         return nil, response.error or "Request failed: " .. tostring(response.statusCode)
@@ -102,7 +87,6 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "Failed to parse response JSON"
     end
     
-    -- 提取响应内容
     local content = response.data.choices and 
                     response.data.choices[1] and 
                     response.data.choices[1].message and 
@@ -112,22 +96,13 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "No content in response"
     end
     
-    -- 更新对话历史
-    table.insert(self.conversationHistory, {
-        role = "user",
-        content = userMessage
-    })
-    table.insert(self.conversationHistory, {
-        role = "assistant",
-        content = content
-    })
+    table.insert(self.conversationHistory, {role = "user", content = userMessage})
+    table.insert(self.conversationHistory, {role = "assistant", content = content})
     
-    -- 限制历史长度
     while #self.conversationHistory > self.maxHistoryLength * 2 do
         table.remove(self.conversationHistory, 1)
     end
     
-    -- 返回完整响应
     return {
         content = content,
         model = response.data.model,
@@ -138,10 +113,9 @@ end
 
 -- 分析游戏资源
 function AIClient:analyzeResources(query, resourceContext, options)
-    -- 构建系统提示词
-    local systemPrompt = Config.SystemPrompts.analyzer
+    local Config = getDeps()
+    local systemPrompt = Config and Config.SystemPrompts and Config.SystemPrompts.analyzer or "You are a helpful AI assistant."
     
-    -- 构建用户消息
     local userMessage = query
     
     if resourceContext then
@@ -180,12 +154,10 @@ Focus on:
 Be concise and practical in your analysis.]]
 
     local scriptsInfo = ""
-    for i, script in ipairs(scriptsContext.scripts or {}) do
+    for _, script in ipairs(scriptsContext.scripts or {}) do
         scriptsInfo = scriptsInfo .. string.format(
             "\n--- %s (%s) ---\nPath: %s\n\n%s\n",
-            script.name,
-            script.type,
-            script.path,
+            script.name, script.type, script.path,
             script.source or "[No source]"
         )
     end
@@ -195,8 +167,7 @@ Be concise and practical in your analysis.]]
 %s
 
 Question: %s]],
-        scriptsInfo,
-        query
+        scriptsInfo, query
     )
     
     return self:chat(userMessage, systemPrompt, options)
@@ -204,7 +175,8 @@ end
 
 -- 生成代码
 function AIClient:generateCode(prompt, context, options)
-    local systemPrompt = Config.SystemPrompts.codeGenerator
+    local Config = getDeps()
+    local systemPrompt = Config and Config.SystemPrompts and Config.SystemPrompts.codeGenerator or "You are a code generator."
     
     local userMessage = prompt
     if context then
@@ -213,8 +185,7 @@ function AIClient:generateCode(prompt, context, options)
 %s
 
 Task: %s]],
-            HttpService:JSONEncode(context),
-            prompt
+            HttpService:JSONEncode(context), prompt
         )
     end
     
@@ -226,27 +197,12 @@ function AIClient:clearHistory()
     self.conversationHistory = {}
 end
 
--- 设置历史长度
-function AIClient:setMaxHistory(length)
-    self.maxHistoryLength = length or 20
-end
-
--- 获取当前提供商信息
-function AIClient:getProviderInfo()
-    local provider = Config:getCurrentProvider()
-    return {
-        name = provider.name,
-        defaultModel = provider.defaultModel,
-        models = provider.models,
-        hasApiKey = provider.apiKey ~= nil and provider.apiKey ~= ""
-    }
-end
-
 -- 测试API连接
 function AIClient:testConnection()
-    local provider = Config:getCurrentProvider()
+    local Config = getDeps()
+    local provider = Config and Config:getCurrentProvider()
     
-    if not provider.apiKey or provider.apiKey == "" then
+    if not provider or not provider.apiKey or provider.apiKey == "" then
         return false, "API Key not configured"
     end
     
