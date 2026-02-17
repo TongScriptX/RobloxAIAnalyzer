@@ -50,7 +50,11 @@ UI.WindowConfig = {
     titleBarHeight = 45,
     
     -- 是否最小化
-    isMinimized = false
+    isMinimized = false,
+    
+    -- 悬浮按钮配置
+    floatBtnSize = 50,
+    floatBtnMargin = 20
 }
 
 -- 创建圆角
@@ -117,6 +121,31 @@ function UI:createMainWindow()
     self.currentWidth = winW
     self.currentHeight = winH
     local sidebarW = self:calculateSidebarWidth()
+    
+    -- 创建悬浮按钮
+    local floatBtn = Instance.new("TextButton", screenGui)
+    floatBtn.Name = "FloatButton"
+    floatBtn.Size = UDim2.new(0, self.WindowConfig.floatBtnSize, 0, self.WindowConfig.floatBtnSize)
+    floatBtn.Position = UDim2.new(1, -self.WindowConfig.floatBtnSize - self.WindowConfig.floatBtnMargin, 0.5, -self.WindowConfig.floatBtnSize/2)
+    floatBtn.BackgroundColor3 = self.Theme.accent
+    floatBtn.BorderSizePixel = 0
+    floatBtn.Text = "AI"
+    floatBtn.TextColor3 = Color3.new(1, 1, 1)
+    floatBtn.TextSize = 16
+    floatBtn.Font = Enum.Font.GothamBold
+    floatBtn.Visible = false
+    floatBtn.ZIndex = 100
+    createCorner(floatBtn, self.WindowConfig.floatBtnSize/2)
+    
+    -- 悬浮按钮边框
+    local floatStroke = Instance.new("UIStroke", floatBtn)
+    floatStroke.Color = self.Theme.accentHover
+    floatStroke.Thickness = 2
+    
+    -- 悬浮按钮阴影效果
+    local floatShadow = Instance.new("UIStroke", floatBtn)
+    floatShadow.Color = Color3.fromRGB(0, 0, 0)
+    floatShadow.Thickness = 0
     
     -- 主框架
     local mainFrame = Instance.new("Frame", screenGui)
@@ -241,9 +270,11 @@ function UI:createMainWindow()
     self.sidebar = sidebar
     self.mainContent = mainContent
     self.contentFrame = contentFrame
+    self.floatBtn = floatBtn
     
     -- 设置拖动
     self:setupDrag(titleBar, mainFrame)
+    self:setupFloatDrag(floatBtn)
     
     -- 设置关闭/最小化
     closeBtn.MouseButton1Click:Connect(function()
@@ -252,6 +283,26 @@ function UI:createMainWindow()
     
     minBtn.MouseButton1Click:Connect(function()
         self:toggleMinimize()
+    end)
+    
+    -- 悬浮按钮点击展开
+    floatBtn.MouseButton1Click:Connect(function()
+        self:toggleMinimize()
+    end)
+    
+    -- 悬浮按钮悬停效果
+    floatBtn.MouseEnter:Connect(function()
+        TweenService:Create(floatBtn, TweenInfo.new(0.2), {
+            BackgroundColor3 = self.Theme.accentHover,
+            Size = UDim2.new(0, self.WindowConfig.floatBtnSize + 5, 0, self.WindowConfig.floatBtnSize + 5)
+        }):Play()
+    end)
+    
+    floatBtn.MouseLeave:Connect(function()
+        TweenService:Create(floatBtn, TweenInfo.new(0.2), {
+            BackgroundColor3 = self.Theme.accent,
+            Size = UDim2.new(0, self.WindowConfig.floatBtnSize, 0, self.WindowConfig.floatBtnSize)
+        }):Play()
     end)
     
     -- 监听屏幕尺寸变化
@@ -265,14 +316,130 @@ function UI:toggleMinimize()
     local config = self.WindowConfig
     config.isMinimized = not config.isMinimized
     
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
     if config.isMinimized then
-        -- 最小化到标题栏
-        self.mainFrame.Size = UDim2.new(0, self.currentWidth * 0.5, 0, config.titleBarHeight)
-        self.contentFrame.Visible = false
+        -- 缩小为悬浮按钮
+        -- 记录当前位置
+        self.savedPosition = self.mainFrame.Position
+        
+        -- 动画缩小并移动到右侧
+        local targetPos = UDim2.new(1, -config.floatBtnSize - config.floatBtnMargin - self.currentWidth/2, 
+                                     0.5, -self.currentHeight/2)
+        
+        -- 同时缩小窗口
+        local shrinkTween = TweenService:Create(self.mainFrame, tweenInfo, {
+            Size = UDim2.new(0, 0, 0, 0),
+            Position = UDim2.new(1, -config.floatBtnSize/2 - config.floatBtnMargin, 0.5, 0),
+            BackgroundTransparency = 1
+        })
+        
+        shrinkTween:Play()
+        
+        -- 窗口消失后显示悬浮按钮
+        shrinkTween.Completed:Connect(function()
+            self.mainFrame.Visible = false
+            self.floatBtn.Visible = true
+        end)
     else
-        -- 恢复正常大小
-        self.mainFrame.Size = UDim2.new(0, self.currentWidth, 0, self.currentHeight)
-        self.contentFrame.Visible = true
+        -- 从悬浮按钮展开
+        self.floatBtn.Visible = false
+        self.mainFrame.Visible = true
+        self.mainFrame.Size = UDim2.new(0, 0, 0, 0)
+        self.mainFrame.BackgroundTransparency = 1
+        self.mainFrame.Position = UDim2.new(1, -self.WindowConfig.floatBtnSize/2 - self.WindowConfig.floatBtnMargin, 0.5, 0)
+        
+        -- 展开动画
+        TweenService:Create(self.mainFrame, tweenInfo, {
+            Size = UDim2.new(0, self.currentWidth, 0, self.currentHeight),
+            Position = UDim2.new(0.5, -self.currentWidth/2, 0.5, -self.currentHeight/2),
+            BackgroundTransparency = 0
+        }):Play()
+    end
+end
+
+-- 设置悬浮按钮拖动
+function UI:setupFloatDrag(floatBtn)
+    local dragging = false
+    local dragInput, dragStart, startPos
+    local config = self.WindowConfig
+    
+    floatBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = floatBtn.Position
+            
+            -- 长按检测（用于区分拖动和点击）
+            local holdTime = 0
+            local holdConnection
+            holdConnection = RunService.RenderStepped:Connect(function(dt)
+                holdTime = holdTime + dt
+            end)
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    holdConnection:Disconnect()
+                    -- 如果按住时间短且移动不多，视为点击
+                    if holdTime < 0.3 then
+                        local moved = (floatBtn.Position.X.Offset - startPos.X.Offset) + 
+                                      (floatBtn.Position.Y.Offset - startPos.Y.Offset)
+                        if math.abs(moved) < 10 then
+                            -- 点击事件已在单独的点击处理器中
+                        end
+                    end
+                    -- 吸附到边缘
+                    self:snapFloatToEdge()
+                end
+            end)
+        end
+    end)
+    
+    floatBtn.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            local newX = startPos.X.Offset + delta.X
+            local newY = startPos.Y.Offset + delta.Y
+            
+            -- 限制在屏幕范围内
+            local screenW = workspace.CurrentCamera.ViewportSize.X
+            local screenH = workspace.CurrentCamera.ViewportSize.Y
+            
+            newX = math.clamp(newX, config.floatBtnMargin, screenW - config.floatBtnSize - config.floatBtnMargin)
+            newY = math.clamp(newY, config.floatBtnMargin, screenH - config.floatBtnSize - config.floatBtnMargin)
+            
+            floatBtn.Position = UDim2.new(0, newX, 0, newY)
+        end
+    end)
+end
+
+-- 悬浮按钮吸附到屏幕边缘
+function UI:snapFloatToEdge()
+    local config = self.WindowConfig
+    local screenW = workspace.CurrentCamera.ViewportSize.X
+    local btnX = self.floatBtn.Position.X.Offset
+    local screenCenter = screenW / 2
+    
+    local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    -- 吸附到左边或右边
+    if btnX < screenCenter then
+        -- 吸附到左边
+        TweenService:Create(self.floatBtn, tweenInfo, {
+            Position = UDim2.new(0, config.floatBtnMargin, 0, self.floatBtn.Position.Y.Offset)
+        }):Play()
+    else
+        -- 吸附到右边
+        TweenService:Create(self.floatBtn, tweenInfo, {
+            Position = UDim2.new(1, -config.floatBtnSize - config.floatBtnMargin, 0, self.floatBtn.Position.Y.Offset)
+        }):Play()
     end
 end
 
@@ -293,6 +460,11 @@ end
 
 -- 调整窗口大小
 function UI:resizeWindow()
+    -- 最小化状态下不调整
+    if self.WindowConfig.isMinimized then
+        return
+    end
+    
     local winW, winH = self:calculateWindowSize()
     self.currentWidth = winW
     self.currentHeight = winH
