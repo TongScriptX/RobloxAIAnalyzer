@@ -6,8 +6,7 @@ local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer
 local App = {
     ver = "2.0.0",
     ready = false,
-    exec = {},
-    history = {}
+    exec = {}
 }
 
 -- 执行器检测
@@ -181,38 +180,6 @@ local function execScript(code)
     end
 end
 
--- 历史记录
-local function loadHistory()
-    local cfg = _G.AIAnalyzer and _G.AIAnalyzer.Config
-    if cfg and cfg.loadHistory then
-        App.history = cfg:loadHistory()
-    else
-        App.history = {}
-    end
-end
-
-local function saveHistory()
-    local cfg = _G.AIAnalyzer and _G.AIAnalyzer.Config
-    if cfg and cfg.saveHistory then
-        cfg:saveHistory(App.history)
-    end
-end
-
-local function addHistory(query, response)
-    table.insert(App.history, {
-        time = os.date("%Y-%m-%d %H:%M:%S"),
-        query = query,
-        response = response:sub(1, 500)
-    })
-    
-    -- 限制数量
-    while #App.history > 50 do
-        table.remove(App.history, 1)
-    end
-    
-    saveHistory()
-end
-
 function App:init()
     if self.ready then return end
     
@@ -251,9 +218,15 @@ function App:init()
     local ai = loadModule("modules/ai_client.lua")
     if ai then _G.AIAnalyzer.AIClient = ai; print("[AI CLI] AIClient OK") end
     
+    -- 加载配置和session
     local cfg = _G.AIAnalyzer.Config
-    if cfg and cfg.load then cfg:load() end
-    loadHistory()
+    if cfg then
+        if cfg.load then cfg:load() end
+        if cfg.loadSessions then cfg:loadSessions() end
+        if not cfg.CurrentSession then
+            cfg:createSession()
+        end
+    end
     
     self:setupUI()
     self:bindEvents()
@@ -274,10 +247,6 @@ function App:setupUI()
         ui:showView("chat")
     end)
     
-    ui:createSidebarButton("历史", "📜", function()
-        self:showHistory()
-    end)
-    
     ui:createSidebarButton("资源", "📁", function()
         ui:showView("resources")
     end)
@@ -287,9 +256,15 @@ function App:setupUI()
         self:loadSettings()
     end)
     
+    -- 创建session列表
+    ui:createSessionList()
+    
     ui:createChatView()
     ui:createSettingsView()
     ui:createResourceView()
+    
+    -- 加载session列表
+    self:refreshSessionList()
     
     ui:showView("chat")
     self:updateConnectionStatus()
@@ -351,7 +326,7 @@ function App:bindEvents()
     end)
     
     ui.clearHistoryBtn.MouseButton1Click:Connect(function()
-        self:clearHistory()
+        self:clearCurrentSession()
     end)
     
     ui.exportHistoryBtn.MouseButton1Click:Connect(function()
@@ -364,6 +339,11 @@ function App:bindEvents()
     
     ui.resourceSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         self:searchResources(ui.resourceSearchBox.Text)
+    end)
+    
+    -- Session相关事件
+    ui.newSessionBtn.MouseButton1Click:Connect(function()
+        self:newSession()
     end)
 end
 
@@ -496,57 +476,118 @@ function App:showHelp()
 • 保存 - 保存到执行器目录]], false)
 end
 
--- 显示历史记录
-function App:showHistory()
+-- Session管理
+function App:newSession()
     local ui = _G.AIAnalyzer.UI
-    ui:showView("chat")
+    local cfg = _G.AIAnalyzer.Config
     
-    if #self.history == 0 then
-        ui:addMessage("📜 暂无历史记录", false)
-        return
-    end
-    
-    ui:addMessage(string.format("📜 最近 %d 条记录:", #self.history), false)
-    
-    for i, entry in ipairs(self.history) do
-        if i > 10 then break end
-        ui:addMessage(string.format("[%s] %s", entry.time, entry.query:sub(1, 50)), false)
+    if cfg then
+        cfg:createSession()
+        ui:clearMessages()
+        self:refreshSessionList()
+        ui:addMessage("🆕 新对话已创建", false)
     end
 end
 
--- 清除历史
-function App:clearHistory()
+function App:switchSession(session)
     local ui = _G.AIAnalyzer.UI
-    self.history = {}
-    saveHistory()
-    ui:addMessage("✅ 历史记录已清除", false)
+    local cfg = _G.AIAnalyzer.Config
+    
+    if cfg then
+        cfg:switchSession(session.id)
+        self:refreshSessionList()
+        
+        -- 显示当前session的消息
+        ui:clearMessages()
+        local messages = cfg:getMessages()
+        for _, msg in ipairs(messages) do
+            ui:addMessage(msg.content, msg.role == "user")
+        end
+    end
+end
+
+function App:deleteSession(session)
+    local ui = _G.AIAnalyzer.UI
+    local cfg = _G.AIAnalyzer.Config
+    
+    if cfg then
+        cfg:deleteSession(session.id)
+        self:refreshSessionList()
+        
+        -- 如果删除的是当前session，显示新的空session
+        if not cfg.CurrentSession then
+            cfg:createSession()
+            ui:clearMessages()
+            self:refreshSessionList()
+        end
+    end
+end
+
+function App:refreshSessionList()
+    local ui = _G.AIAnalyzer.UI
+    local cfg = _G.AIAnalyzer.Config
+    
+    if cfg then
+        local sessions = cfg:getSessionList()
+        local currentId = cfg.CurrentSession and cfg.CurrentSession.id
+        
+        ui:refreshSessionList(
+            sessions,
+            function(s) self:switchSession(s) end,
+            function(s) self:deleteSession(s) end,
+            currentId
+        )
+    end
+end
+
+-- 清空当前session
+function App:clearCurrentSession()
+    local ui = _G.AIAnalyzer.UI
+    local cfg = _G.AIAnalyzer.Config
+    
+    if cfg then
+        cfg:clearCurrentSession()
+        ui:clearMessages()
+        ui:addMessage("✅ 当前对话已清空", false)
+    end
 end
 
 -- 导出历史
 function App:exportHistory()
     local ui = _G.AIAnalyzer.UI
+    local cfg = _G.AIAnalyzer.Config
     local HttpService = game:GetService("HttpService")
     
-    if #self.history == 0 then
-        ui:addMessage("⚠️ 暂无历史记录可导出", false)
+    if not cfg or not cfg.CurrentSession then
+        ui:addMessage("⚠️ 暂无对话可导出", false)
         return
     end
     
-    local json = HttpService:JSONEncode(self.history)
-    local success, result = saveScript("history_export", json)
+    local messages = cfg:getMessages()
+    if #messages == 0 then
+        ui:addMessage("⚠️ 当前对话为空", false)
+        return
+    end
+    
+    local json = HttpService:JSONEncode({
+        title = cfg.CurrentSession.title,
+        messages = messages
+    })
+    
+    local success, result = saveScript("session_export", json)
     
     if success then
-        ui:addMessage("✅ 历史已导出: " .. result, false)
+        ui:addMessage("✅ 对话已导出: " .. result, false)
     else
-        -- 复制到剪贴板
         if setclipboard then
             setclipboard(json)
-            ui:addMessage("✅ 历史已复制到剪贴板", false)
+            ui:addMessage("✅ 对话已复制到剪贴板", false)
         else
             ui:addMessage("❌ 导出失败: " .. tostring(result), false)
         end
     end
 end
+
 -- AI交互
 function App:sendToAI(query)
     local ui = _G.AIAnalyzer.UI
@@ -570,6 +611,10 @@ function App:sendToAI(query)
         return
     end
     
+    -- 保存用户消息
+    Config:addMessage("user", query)
+    self:refreshSessionList()
+    
     local Scanner = _G.AIAnalyzer.Scanner
     local context = Scanner and Scanner:toAIContext(50) or {}
     
@@ -592,7 +637,8 @@ function App:sendToAI(query)
         
         if result then
             ui:addMessage(result.content, false)
-            addHistory(query, result.content)
+            Config:addMessage("assistant", result.content)
+            self:refreshSessionList()
         else
             ui:addMessage("❌ 错误: " .. tostring(err), false)
         end

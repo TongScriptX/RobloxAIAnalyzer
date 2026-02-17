@@ -455,11 +455,11 @@ function UI:resizeWindow()
     }):Play()
 end
 
--- 创建侧边栏按钮
+-- 侧边栏按钮
 function UI:createSidebarButton(name, icon, callback)
     local btnCount = 0
     for _, child in pairs(self.sidebar:GetChildren()) do
-        if child:IsA("TextButton") then
+        if child:IsA("TextButton") and not child.Name:find("Session") then
             btnCount = btnCount + 1
         end
     end
@@ -489,6 +489,151 @@ function UI:createSidebarButton(name, icon, callback)
     end)
     
     return btn
+end
+
+-- 创建session列表区域
+function UI:createSessionList()
+    -- 分隔线
+    local separator = Instance.new("Frame", self.sidebar)
+    separator.Name = "Separator"
+    separator.Size = UDim2.new(1, -10, 0, 1)
+    separator.Position = UDim2.new(0, 5, 0, 170)
+    separator.BackgroundColor3 = self.Theme.border
+    separator.BorderSizePixel = 0
+    
+    -- 标题
+    local title = Instance.new("TextLabel", self.sidebar)
+    title.Name = "SessionTitle"
+    title.Size = UDim2.new(1, -10, 0, 24)
+    title.Position = UDim2.new(0, 5, 0, 175)
+    title.BackgroundTransparency = 1
+    title.Text = " 📋 对话记录"
+    title.TextColor3 = self.Theme.textSecondary
+    title.TextSize = 11
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- 新建按钮
+    local newBtn = Instance.new("TextButton", self.sidebar)
+    newBtn.Name = "NewSessionBtn"
+    newBtn.Size = UDim2.new(1, -10, 0, 28)
+    newBtn.Position = UDim2.new(0, 5, 0, 200)
+    newBtn.BackgroundColor3 = self.Theme.accent
+    newBtn.BorderSizePixel = 0
+    newBtn.Text = "+ 新对话"
+    newBtn.TextColor3 = Color3.new(1, 1, 1)
+    newBtn.TextSize = 11
+    newBtn.Font = Enum.Font.GothamBold
+    createCorner(newBtn, 4)
+    
+    -- Session列表
+    local sessionList = Instance.new("ScrollingFrame", self.sidebar)
+    sessionList.Name = "SessionList"
+    sessionList.Size = UDim2.new(1, -10, 1, -240)
+    sessionList.Position = UDim2.new(0, 5, 0, 235)
+    sessionList.BackgroundColor3 = Color3.new(1, 1, 1)
+    sessionList.BackgroundTransparency = 1
+    sessionList.BorderSizePixel = 0
+    sessionList.ScrollBarThickness = 4
+    sessionList.ScrollBarImageColor3 = self.Theme.accent
+    sessionList.CanvasSize = UDim2.new(0, 0, 0, 0)
+    sessionList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    
+    local listLayout = Instance.new("UIListLayout", sessionList)
+    listLayout.Padding = UDim.new(0, 2)
+    
+    self.sessionList = sessionList
+    self.newSessionBtn = newBtn
+    
+    return sessionList
+end
+
+-- 添加session项
+function UI:addSessionItem(session, onClick, onDelete)
+    local item = Instance.new("TextButton", self.sessionList)
+    item.Name = "Session_" .. session.id
+    item.Size = UDim2.new(1, 0, 0, 36)
+    item.BackgroundColor3 = session.active and self.Theme.accent or self.Theme.backgroundTertiary
+    item.BorderSizePixel = 0
+    item.Text = ""
+    createCorner(item, 4)
+    
+    -- Session名称
+    local name = Instance.new("TextLabel", item)
+    name.Size = UDim2.new(1, -25, 1, 0)
+    name.Position = UDim2.new(0, 8, 0, 0)
+    name.BackgroundTransparency = 1
+    name.Text = session.title or "新对话"
+    name.TextColor3 = session.active and Color3.new(1, 1, 1) or self.Theme.text
+    name.TextSize = 11
+    name.Font = Enum.Font.Gotham
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    -- 时间
+    local time = Instance.new("TextLabel", item)
+    time.Size = UDim2.new(1, -8, 0, 12)
+    time.Position = UDim2.new(0, 8, 1, -14)
+    time.BackgroundTransparency = 1
+    time.Text = session.time or ""
+    time.TextColor3 = session.active and Color3.fromRGB(200, 220, 255) or self.Theme.textMuted
+    time.TextSize = 9
+    time.Font = Enum.Font.Gotham
+    time.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- 删除按钮
+    local delBtn = Instance.new("TextButton", item)
+    delBtn.Size = UDim2.new(0, 20, 0, 20)
+    delBtn.Position = UDim2.new(1, -22, 0.5, -10)
+    delBtn.BackgroundColor3 = self.Theme.error
+    delBtn.BorderSizePixel = 0
+    delBtn.Text = "×"
+    delBtn.TextColor3 = Color3.new(1, 1, 1)
+    delBtn.TextSize = 14
+    delBtn.Font = Enum.Font.GothamBold
+    delBtn.Visible = false
+    createCorner(delBtn, 4)
+    
+    item.MouseButton1Click:Connect(function()
+        if onClick then onClick(session) end
+    end)
+    
+    item.MouseEnter:Connect(function()
+        delBtn.Visible = true
+        if not session.active then
+            TweenService:Create(item, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.accent}):Play()
+        end
+    end)
+    
+    item.MouseLeave:Connect(function()
+        delBtn.Visible = false
+        if not session.active then
+            TweenService:Create(item, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.backgroundTertiary}):Play()
+        end
+    end)
+    
+    delBtn.MouseButton1Click:Connect(function()
+        item:Destroy()
+        if onDelete then onDelete(session) end
+    end)
+    
+    return item
+end
+
+-- 刷新session列表
+function UI:refreshSessionList(sessions, onSwitch, onDelete, currentId)
+    -- 清空列表
+    for _, child in pairs(self.sessionList:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    
+    -- 添加session项
+    for _, session in ipairs(sessions) do
+        session.active = session.id == currentId
+        self:addSessionItem(session, onSwitch, onDelete)
+    end
 end
 
 -- 创建聊天界面

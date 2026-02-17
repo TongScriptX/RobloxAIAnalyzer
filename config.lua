@@ -68,7 +68,160 @@ Config.Settings = {
     }
 }
 
--- 历史记录
+-- Session形式的历史记录
+Config.Sessions = {}
+Config.CurrentSession = nil
+
+-- 创建新session
+function Config:createSession()
+    local session = {
+        id = tostring(os.time()),
+        title = "新对话",
+        time = os.date("%m/%d %H:%M"),
+        messages = {},
+        createdAt = os.time()
+    }
+    
+    -- 添加到列表开头
+    table.insert(self.Sessions, 1, session)
+    
+    -- 限制数量
+    while #self.Sessions > 20 do
+        table.remove(self.Sessions)
+    end
+    
+    self.CurrentSession = session
+    self:saveSessions()
+    
+    return session
+end
+
+-- 获取或创建当前session
+function Config:getCurrentSession()
+    if not self.CurrentSession then
+        self.CurrentSession = self:createSession()
+    end
+    return self.CurrentSession
+end
+
+-- 切换session
+function Config:switchSession(sessionId)
+    for _, session in ipairs(self.Sessions) do
+        if session.id == sessionId then
+            self.CurrentSession = session
+            self:saveSessions()
+            return session
+        end
+    end
+    return nil
+end
+
+-- 删除session
+function Config:deleteSession(sessionId)
+    for i, session in ipairs(self.Sessions) do
+        if session.id == sessionId then
+            table.remove(self.Sessions, i)
+            if self.CurrentSession and self.CurrentSession.id == sessionId then
+                self.CurrentSession = #self.Sessions > 0 and self.Sessions[1] or nil
+            end
+            self:saveSessions()
+            return true
+        end
+    end
+    return false
+end
+
+-- 添加消息到当前session
+function Config:addMessage(role, content)
+    local session = self:getCurrentSession()
+    
+    table.insert(session.messages, {
+        role = role,
+        content = content,
+        time = os.time()
+    })
+    
+    -- 更新标题（使用第一条用户消息）
+    if role == "user" and session.title == "新对话" then
+        session.title = content:sub(1, 20) .. (#content > 20 and "..." or "")
+    end
+    
+    session.time = os.date("%m/%d %H:%M")
+    self:saveSessions()
+end
+
+-- 获取当前session的消息历史
+function Config:getMessages()
+    local session = self:getCurrentSession()
+    return session.messages or {}
+end
+
+-- 清空当前session
+function Config:clearCurrentSession()
+    local session = self:getCurrentSession()
+    session.messages = {}
+    session.title = "新对话"
+    self:saveSessions()
+end
+
+-- 获取所有session列表
+function Config:getSessionList()
+    return self.Sessions
+end
+
+-- 保存sessions到文件
+function Config:saveSessions()
+    if not writefile then
+        getgenv().RobloxAIAnalyzerSessions = HttpService:JSONEncode(self.Sessions)
+        return false
+    end
+    
+    pcall(function()
+        writefile("RobloxAIAnalyzer/sessions.json", HttpService:JSONEncode(self.Sessions))
+    end)
+    
+    return true
+end
+
+-- 加载sessions
+function Config:loadSessions()
+    if readfile then
+        local ok, content = pcall(function()
+            return readfile("RobloxAIAnalyzer/sessions.json")
+        end)
+        
+        if ok and content then
+            local ok2, data = pcall(function()
+                return HttpService:JSONDecode(content)
+            end)
+            if ok2 and data then
+                self.Sessions = data
+                if #data > 0 then
+                    self.CurrentSession = data[1]
+                end
+                return true
+            end
+        end
+    end
+    
+    -- 回退到getgenv
+    local saved = getgenv().RobloxAIAnalyzerSessions
+    if saved then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(saved)
+        end)
+        if ok and data then
+            self.Sessions = data
+            if #data > 0 then
+                self.CurrentSession = data[1]
+            end
+        end
+    end
+    
+    return false
+end
+
+-- 兼容旧版API
 Config.History = {
     conversations = {},
     executedScripts = {},
