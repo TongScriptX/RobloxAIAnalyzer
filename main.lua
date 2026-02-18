@@ -164,14 +164,31 @@ local function loadModule(path)
         return nil
     end
     
-    if not res or #res <= 10 then
-        warn("[AI CLI] 响应内容无效: " .. path .. " (长度: " .. tostring(res and #res or 0) .. ")")
+    if not res then
+        warn("[AI CLI] 响应为空: " .. path)
         return nil
     end
     
-    local ok2, fn = pcall(loadstring, res)
-    if not ok2 or not fn then
-        warn("[AI CLI] 编译失败: " .. path .. " - " .. tostring(fn))
+    if type(res) ~= "string" then
+        warn("[AI CLI] 响应类型错误: " .. path .. " (类型: " .. type(res) .. ")")
+        return nil
+    end
+    
+    if #res <= 10 then
+        warn("[AI CLI] 响应内容太短: " .. path .. " (长度: " .. #res .. ")")
+        return nil
+    end
+    
+    -- 检查是否是有效的Lua代码开头
+    local firstChar = res:sub(1, 1)
+    if firstChar == "<" then
+        warn("[AI CLI] 返回HTML而非Lua: " .. path .. " (开头: " .. res:sub(1, 50) .. "...)")
+        return nil
+    end
+    
+    local fn, err = loadstring(res)
+    if not fn then
+        warn("[AI CLI] 编译失败: " .. path .. " - " .. tostring(err))
         return nil
     end
     
