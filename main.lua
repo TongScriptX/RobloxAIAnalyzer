@@ -746,11 +746,13 @@ function App:scanResources()
         local results = Scanner:scan()
         local stats = Scanner:getStats()
         
-        -- 清空资源数据
+        -- 清空资源数据（保持与 ui.lua 结构一致）
         ui.allResources = {
             all = {},
             remotes = {},
-            scripts = {},
+            localscripts = {},
+            serverscripts = {},
+            modulescripts = {},
             others = {}
         }
         ui:clearResourceList()
