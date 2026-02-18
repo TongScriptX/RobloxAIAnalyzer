@@ -1436,7 +1436,7 @@ function UI:updateModelDropdown(providerKey)
     end
     
     -- 调整列表高度
-    self.modelListFrame.CanvasSize = UDim2.new(0, 0, 0, #models * 26)
+    self.modelListFrame.Size = UDim2.new(1, -8, 0, #models * 26)
 end
 
 -- 更新执行器信息显示
