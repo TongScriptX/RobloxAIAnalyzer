@@ -197,37 +197,34 @@ function App:init()
     
     _G.AIAnalyzer = {Executor = self.exec}
     
-    -- 核心模块（必须加载）
-    local cfg = loadModule("config.lua")
-    if cfg then _G.AIAnalyzer.Config = cfg else warn("[AI CLI] Config 加载失败") return end
+    -- 显示加载中UI
+    self:showLoadingUI()
     
-    local http = loadModule("modules/http.lua")
-    if http then _G.AIAnalyzer.Http = http else warn("[AI CLI] Http 加载失败") end
+    -- 所有模块列表
+    local modules = {
+        {name = "Config", path = "config.lua", key = "Config", required = true},
+        {name = "Http", path = "modules/http.lua", key = "Http", required = true},
+        {name = "Scanner", path = "modules/scanner.lua", key = "Scanner", required = true},
+        {name = "Reader", path = "modules/reader.lua", key = "Reader", required = true},
+        {name = "Executor", path = "modules/executor.lua", key = "Executor", required = false},
+        {name = "UI", path = "modules/ui.lua", key = "UI", required = true},
+        {name = "Tools", path = "modules/tools.lua", key = "Tools", required = false},
+        {name = "ContextManager", path = "modules/context_manager.lua", key = "ContextManager", required = false},
+        {name = "AIClient", path = "modules/ai_client.lua", key = "AIClient", required = false},
+    }
     
-    local scanner = loadModule("modules/scanner.lua")
-    if scanner then _G.AIAnalyzer.Scanner = scanner else warn("[AI CLI] Scanner 加载失败") end
-    
-    local reader = loadModule("modules/reader.lua")
-    if reader then _G.AIAnalyzer.Reader = reader else warn("[AI CLI] Reader 加载失败") end
-    
-    local executor = loadModule("modules/executor.lua")
-    if executor then _G.AIAnalyzer.Executor = executor end
-    
-    local ui = loadModule("modules/ui.lua")
-    if not ui then warn("[AI CLI] UI 加载失败") return end
-    _G.AIAnalyzer.UI = ui
-    
-    -- 可选模块（后台加载，不阻塞）
-    spawn(function()
-        local tools = loadModule("modules/tools.lua")
-        if tools then _G.AIAnalyzer.Tools = tools end
-        
-        local ctx = loadModule("modules/context_manager.lua")
-        if ctx then _G.AIAnalyzer.ContextManager = ctx end
-        
-        local ai = loadModule("modules/ai_client.lua")
-        if ai then _G.AIAnalyzer.AIClient = ai end
-    end)
+    -- 同步加载所有模块
+    for i, mod in ipairs(modules) do
+        self:updateLoadingProgress(i, #modules, mod.name)
+        local m = loadModule(mod.path)
+        if m then
+            _G.AIAnalyzer[mod.key] = m
+        elseif mod.required then
+            self:hideLoadingUI()
+            warn("[AI CLI] " .. mod.name .. " 加载失败（必需模块）")
+            return
+        end
+    end
     
     -- 加载配置和session
     local cfg = _G.AIAnalyzer.Config
@@ -239,7 +236,10 @@ function App:init()
         end
     end
     
-    -- 创建UI（添加错误处理）
+    -- 隐藏加载UI
+    self:hideLoadingUI()
+    
+    -- 创建主UI
     local ok, err = pcall(function()
         self:setupUI()
     end)
@@ -255,6 +255,85 @@ function App:init()
     print("[AI CLI] 初始化完成")
     
     self:showWelcome()
+end
+
+-- 加载中UI
+function App:showLoadingUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AILoadingUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.Parent = game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+    
+    local frame = Instance.new("Frame", screenGui)
+    frame.Size = UDim2.new(0, 280, 0, 100)
+    frame.Position = UDim2.new(0.5, -140, 0.5, -50)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    frame.BorderSizePixel = 0
+    
+    local corner = Instance.new("UICorner", frame)
+    corner.CornerRadius = UDim.new(0, 12)
+    
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Position = UDim2.new(0, 0, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "AI CLI 加载中..."
+    title.TextColor3 = Color3.fromRGB(240, 240, 240)
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    
+    local progress = Instance.new("TextLabel", frame)
+    progress.Name = "ProgressLabel"
+    progress.Size = UDim2.new(1, 0, 0, 24)
+    progress.Position = UDim2.new(0, 0, 0, 45)
+    progress.BackgroundTransparency = 1
+    progress.Text = "正在初始化..."
+    progress.TextColor3 = Color3.fromRGB(180, 180, 180)
+    progress.TextSize = 13
+    progress.Font = Enum.Font.Gotham
+    
+    local barBg = Instance.new("Frame", frame)
+    barBg.Size = UDim2.new(1, -40, 0, 6)
+    barBg.Position = UDim2.new(0, 20, 1, -25)
+    barBg.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+    barBg.BorderSizePixel = 0
+    
+    local barCorner = Instance.new("UICorner", barBg)
+    barCorner.CornerRadius = UDim.new(0, 3)
+    
+    local bar = Instance.new("Frame", barBg)
+    bar.Name = "ProgressBar"
+    bar.Size = UDim2.new(0, 0, 1, 0)
+    bar.BackgroundColor3 = Color3.fromRGB(88, 166, 255)
+    bar.BorderSizePixel = 0
+    
+    local barInnerCorner = Instance.new("UICorner", bar)
+    barInnerCorner.CornerRadius = UDim.new(0, 3)
+    
+    self.loadingUI = screenGui
+end
+
+function App:updateLoadingProgress(current, total, moduleName)
+    if not self.loadingUI then return end
+    
+    local progress = self.loadingUI:FindFirstChild("ProgressLabel", true)
+    local bar = self.loadingUI:FindFirstChild("ProgressBar", true)
+    
+    if progress then
+        progress.Text = string.format("加载 %s (%d/%d)", moduleName, current, total)
+    end
+    
+    if bar then
+        bar.Size = UDim2.new(current / total, 0, 1, 0)
+    end
+end
+
+function App:hideLoadingUI()
+    if self.loadingUI then
+        self.loadingUI:Destroy()
+        self.loadingUI = nil
+    end
 end
 
 function App:setupUI()
