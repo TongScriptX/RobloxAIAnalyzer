@@ -75,9 +75,19 @@ function AIClient:syncHistoryFromConfig(Config)
     local session = Config:getCurrentSession()
     if not session or not session.messages then return end
     
-    -- 同步 Config 的消息到本地历史
-    self.conversationHistory = {}
-    for _, msg in ipairs(session.messages) do
+    -- 只同步新消息（增量同步）
+    local existingCount = #self.conversationHistory
+    local configMessages = session.messages
+    
+    -- 如果 Config 消息比本地少，说明可能切换了 session，需要重新同步
+    if #configMessages < existingCount then
+        self.conversationHistory = {}
+        existingCount = 0
+    end
+    
+    -- 只添加新增的消息
+    for i = existingCount + 1, #configMessages do
+        local msg = configMessages[i]
         if msg.role and msg.content then
             table.insert(self.conversationHistory, {
                 role = msg.role,
@@ -144,8 +154,11 @@ function AIClient:chat(userMessage, systemPrompt, options)
     -- 从 Config 同步消息历史
     self:syncHistoryFromConfig(Config)
     
-    -- 添加用户消息到历史
-    table.insert(self.conversationHistory, {role = "user", content = userMessage})
+    -- 检查最后一条消息是否是当前用户消息，避免重复添加
+    local lastMsg = self.conversationHistory[#self.conversationHistory]
+    if not lastMsg or lastMsg.role ~= "user" or lastMsg.content ~= userMessage then
+        table.insert(self.conversationHistory, {role = "user", content = userMessage})
+    end
     
     -- 检查是否需要压缩
     self:checkAndCompact()
@@ -268,12 +281,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "No content in response (finish_reason: " .. tostring(choice.finish_reason) .. ")"
     end
     
-    -- 只添加助手消息到历史（用户消息已经在函数开头添加）
-    table.insert(self.conversationHistory, {role = "assistant", content = content})
-    
-    while #self.conversationHistory > self.maxHistoryLength * 2 do
-        table.remove(self.conversationHistory, 1)
-    end
+    -- 注意：不在这里添加助手消息到 conversationHistory
+    -- 由调用方通过 Config:addMessage 添加，下次 syncHistoryFromConfig 会同步
     
     return {
         content = content,
