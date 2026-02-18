@@ -121,38 +121,23 @@ local CDN_URLS = {
 }
 
 local function loadModule(path)
-    local lastErr
-    local lastUrl
-    
-    -- 尝试每个 CDN
+    -- 尝试每个 CDN，每个只试1次
     for _, baseUrl in ipairs(CDN_URLS) do
         local url = baseUrl .. "/" .. path
-        lastUrl = url
         
-        -- 重试3次
-        for retry = 1, 3 do
-            local ok, res = pcall(httpGet, url)
-            
-            if ok and res and res ~= "" and #res > 10 then
-                local ok2, fn = pcall(loadstring, res)
-                if ok2 and fn then
-                    local ok3, mod = pcall(fn)
-                    if ok3 then 
-                        print("[AI CLI] 加载成功: " .. path)
-                        return mod 
-                    else
-                        lastErr = "执行失败"
-                    end
-                else
-                    lastErr = "编译失败"
+        local ok, res = pcall(httpGet, url)
+        
+        if ok and res and res ~= "" and #res > 10 then
+            local ok2, fn = pcall(loadstring, res)
+            if ok2 and fn then
+                local ok3, mod = pcall(fn)
+                if ok3 then 
+                    return mod 
                 end
-            else
-                lastErr = ok and "空响应" or tostring(res)
             end
         end
     end
     
-    warn("[AI CLI] 加载失败: " .. path)
     return nil
 end
 
