@@ -1098,29 +1098,39 @@ function UI:createSettingsView()
     providerFrame.BorderSizePixel = 0
     createCorner(providerFrame, 6)
     
-    local deepseekBtn = Instance.new("TextButton", providerFrame)
-    deepseekBtn.Name = "DeepSeek"
-    deepseekBtn.Size = UDim2.new(0.5, -4, 1, -8)
-    deepseekBtn.Position = UDim2.new(0, 4, 0, 4)
-    deepseekBtn.BackgroundColor3 = self.Theme.accent
-    deepseekBtn.BorderSizePixel = 0
-    deepseekBtn.Text = "DeepSeek"
-    deepseekBtn.TextColor3 = Color3.new(1, 1, 1)
-    deepseekBtn.TextSize = 11
-    deepseekBtn.Font = Enum.Font.GothamBold
-    createCorner(deepseekBtn, 4)
+    -- 动态创建提供商按钮
+    local providerBtns = {}
+    local providerList = {}
+    local currentProvider = Config and Config.Settings and Config.Settings.currentProvider or "DeepSeek"
     
-    local openaiBtn = Instance.new("TextButton", providerFrame)
-    openaiBtn.Name = "OpenAI"
-    openaiBtn.Size = UDim2.new(0.5, -4, 1, -8)
-    openaiBtn.Position = UDim2.new(0.5, 0, 0, 4)
-    openaiBtn.BackgroundColor3 = self.Theme.backgroundSecondary
-    openaiBtn.BorderSizePixel = 0
-    openaiBtn.Text = "OpenAI"
-    openaiBtn.TextColor3 = self.Theme.text
-    openaiBtn.TextSize = 11
-    openaiBtn.Font = Enum.Font.Gotham
-    createCorner(openaiBtn, 4)
+    -- 从 Config 读取提供商列表
+    if Config and Config.Providers then
+        for key, provider in pairs(Config.Providers) do
+            table.insert(providerList, {key = key, name = provider.name})
+        end
+        -- 排序保持一致
+        table.sort(providerList, function(a, b) return a.key < b.key end)
+    else
+        providerList = {{key = "DeepSeek", name = "DeepSeek"}, {key = "OpenAI", name = "OpenAI"}}
+    end
+    
+    local btnCount = #providerList
+    local btnWidth = 1 / btnCount
+    
+    for i, prov in ipairs(providerList) do
+        local btn = Instance.new("TextButton", providerFrame)
+        btn.Name = prov.key
+        btn.Size = UDim2.new(btnWidth, -4, 1, -8)
+        btn.Position = UDim2.new((i - 1) * btnWidth, 4, 0, 4)
+        btn.BackgroundColor3 = prov.key == currentProvider and self.Theme.accent or self.Theme.backgroundSecondary
+        btn.BorderSizePixel = 0
+        btn.Text = prov.name
+        btn.TextColor3 = prov.key == currentProvider and Color3.new(1, 1, 1) or self.Theme.text
+        btn.TextSize = 11
+        btn.Font = prov.key == currentProvider and Enum.Font.GothamBold or Enum.Font.Gotham
+        createCorner(btn, 4)
+        providerBtns[prov.key] = btn
+    end
     
     -- ========== 脚本设置 ==========
     local scriptSection = Instance.new("TextLabel", scrollFrame)
@@ -1288,10 +1298,7 @@ function UI:createSettingsView()
     self.apiKeyInput = apiInput
     self.scriptDirInput = dirInput
     self.confirmToggle = confirmBtn
-    self.providerButtons = {
-        deepseek = deepseekBtn,
-        openai = openaiBtn
-    }
+    self.providerButtons = providerBtns
     self.saveSettingsBtn = saveBtn
     self.testConnectionBtn = testBtn
     self.clearHistoryBtn = clearHistoryBtn

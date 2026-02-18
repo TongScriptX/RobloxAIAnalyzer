@@ -24,6 +24,17 @@ Config.Providers = {
         contextWindow = 128000,  -- GPT-4上下文窗口
         outputLimit = 4096,
         apiKey = ""
+    },
+    iFlow = {
+        name = "其他",
+        baseUrl = "https://apis.iflow.cn",
+        endpoint = "/v1/chat/completions",
+        models = {"TBStars2-200B-A13B", "deepseek-chat", "gpt-4o-mini"},
+        defaultModel = "TBStars2-200B-A13B",
+        contextWindow = 128000,
+        outputLimit = 4096,
+        apiKey = "",
+        description = "OpenAI 兼容接口"
     }
 }
 

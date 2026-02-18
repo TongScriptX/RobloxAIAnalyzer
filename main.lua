@@ -7,6 +7,31 @@ local App = {
     exec = {}
 }
 
+-- 清理旧UI（支持重复运行）
+function App:cleanupOldUI()
+    local coreGui = game:GetService("CoreGui")
+    
+    -- 删除所有相关UI
+    local uiNames = {"RobloxAIAnalyzer", "AILoadingUI"}
+    for _, name in ipairs(uiNames) do
+        local existing = coreGui:FindFirstChild(name)
+        if existing then
+            existing:Destroy()
+        end
+    end
+    
+    -- 清理全局状态
+    if _G.AIAnalyzer then
+        if _G.AIAnalyzer.UI and _G.AIAnalyzer.UI.screenGui then
+            _G.AIAnalyzer.UI.screenGui:Destroy()
+        end
+        _G.AIAnalyzer = nil
+    end
+    
+    -- 重置ready状态
+    self.ready = false
+end
+
 -- 执行器检测
 local function detectExecutor()
     local info = {
@@ -199,6 +224,9 @@ end
 function App:init()
     if self.ready then return end
     
+    -- 清理已存在的UI（支持重复运行）
+    self:cleanupOldUI()
+    
     print("[AI CLI] v" .. self.ver .. " 启动中...")
     
     self.exec = detectExecutor()
@@ -225,8 +253,11 @@ function App:init()
         {name = "UI", path = "modules/ui.lua", key = "UI", required = true},
         {name = "Tools", path = "modules/tools.lua", key = "Tools", required = false},
         {name = "ContextManager", path = "modules/context_manager.lua", key = "ContextManager", required = false},
-        {name = "AIClient", path = "modules/ai_client.lua", key = "AIClient", required = false},
+        {name = "AIClient", path = "modules/ai_client.lua", key = "AIClient", required = true},
     }
+    
+    -- 加载状态跟踪
+    local loadStatus = {}
     
     -- 同步加载所有模块
     for i, mod in ipairs(modules) do
@@ -234,11 +265,27 @@ function App:init()
         local m = loadModule(mod.path)
         if m then
             _G.AIAnalyzer[mod.key] = m
-        elseif mod.required then
-            self:hideLoadingUI()
-            warn("[AI CLI] " .. mod.name .. " 加载失败（必需模块）")
-            return
+            loadStatus[mod.name] = true
+        else
+            loadStatus[mod.name] = false
+            if mod.required then
+                self:hideLoadingUI()
+                warn("[AI CLI] " .. mod.name .. " 加载失败（必需模块）")
+                return
+            end
         end
+    end
+    
+    -- 检查模块加载状态
+    local failedModules = {}
+    for name, success in pairs(loadStatus) do
+        if not success then
+            table.insert(failedModules, name)
+        end
+    end
+    
+    if #failedModules > 0 then
+        warn("[AI CLI] 部分模块加载失败: " .. table.concat(failedModules, ", "))
     end
     
     -- 加载配置和session
@@ -423,13 +470,12 @@ function App:bindEvents()
         self:testConnection()
     end)
     
-    ui.providerButtons.deepseek.MouseButton1Click:Connect(function()
-        self:switchProvider("DeepSeek")
-    end)
-    
-    ui.providerButtons.openai.MouseButton1Click:Connect(function()
-        self:switchProvider("OpenAI")
-    end)
+    -- 动态绑定提供商按钮事件
+    for key, btn in pairs(ui.providerButtons) do
+        btn.MouseButton1Click:Connect(function()
+            self:switchProvider(key)
+        end)
+    end
     
     ui.confirmToggle.MouseButton1Click:Connect(function()
         if cfg then
@@ -1027,13 +1073,16 @@ function App:switchProvider(providerName)
     
     Config:switchProvider(providerName)
     
-    for name, btn in pairs(ui.providerButtons) do
-        if name:lower() == providerName:lower() then
+    -- 更新所有提供商按钮样式
+    for key, btn in pairs(ui.providerButtons) do
+        if key == providerName then
             btn.BackgroundColor3 = ui.Theme.accent
             btn.TextColor3 = Color3.new(1, 1, 1)
+            btn.Font = Enum.Font.GothamBold
         else
             btn.BackgroundColor3 = ui.Theme.backgroundSecondary
             btn.TextColor3 = ui.Theme.text
+            btn.Font = Enum.Font.Gotham
         end
     end
     
