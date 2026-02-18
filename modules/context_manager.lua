@@ -57,12 +57,12 @@ local function estimateMessageTokens(message)
     if message.tool_calls then
         for _, tc in ipairs(message.tool_calls) do
             total = total + 20  -- 工具调用开销
-            if tc.function then
-                if tc.function.name then
-                    total = total + estimateTokens(tc.function.name)
+            if tc["function"] then
+                if tc["function"].name then
+                    total = total + estimateTokens(tc["function"].name)
                 end
-                if tc.function.arguments then
-                    total = total + estimateTokens(tc.function.arguments)
+                if tc["function"].arguments then
+                    total = total + estimateTokens(tc["function"].arguments)
                 end
             end
         end

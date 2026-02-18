@@ -7,7 +7,7 @@ local Tools = {}
 Tools.definitions = {
     {
         type = "function",
-        function = {
+        ["function"] = {
             name = "search_resources",
             description = "搜索游戏内的资源对象，如RemoteEvent、RemoteFunction、LocalScript等。返回匹配的资源列表。",
             parameters = {
@@ -29,7 +29,7 @@ Tools.definitions = {
     },
     {
         type = "function",
-        function = {
+        ["function"] = {
             name = "read_script",
             description = "读取指定脚本的源代码。需要提供脚本的名称或路径。返回脚本的完整源码。",
             parameters = {
@@ -46,7 +46,7 @@ Tools.definitions = {
     },
     {
         type = "function",
-        function = {
+        ["function"] = {
             name = "get_remote_info",
             description = "获取RemoteEvent或RemoteFunction的详细信息，包括路径、参数结构等。",
             parameters = {
@@ -63,7 +63,7 @@ Tools.definitions = {
     },
     {
         type = "function",
-        function = {
+        ["function"] = {
             name = "list_resources",
             description = "列出游戏内所有可访问的资源，按类型分组。返回资源摘要列表。",
             parameters = {

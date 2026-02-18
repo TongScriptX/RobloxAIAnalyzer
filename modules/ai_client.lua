@@ -165,11 +165,11 @@ function AIClient:chat(userMessage, systemPrompt, options)
         
         -- 执行工具调用
         for _, toolCall in ipairs(assistantMessage.tool_calls) do
-            local toolName = toolCall.function.name
+            local toolName = toolCall["function"].name
             local toolArgs
             
             local ok, parsed = pcall(function()
-                return HttpService:JSONDecode(toolCall.function.arguments)
+                return HttpService:JSONDecode(toolCall["function"].arguments)
             end)
             toolArgs = ok and parsed or {}
             
