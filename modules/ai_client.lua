@@ -178,9 +178,17 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "Failed to parse response JSON"
     end
     
+    -- 调试：输出响应结构
     local choice = response.data.choices and response.data.choices[1]
     if not choice then
+        -- 输出原始响应用于调试
+        warn("[AI CLI] No choices in response. Raw response: " .. HttpService:JSONEncode(response.data):sub(1, 500))
         return nil, "No choices in response"
+    end
+    
+    if not choice.message then
+        warn("[AI CLI] No message in choice. Choice: " .. HttpService:JSONEncode(choice):sub(1, 300))
+        return nil, "No message in response"
     end
     
     local assistantMessage = choice.message
@@ -237,7 +245,13 @@ function AIClient:chat(userMessage, systemPrompt, options)
     local content = assistantMessage and assistantMessage.content
     
     if not content then
-        return nil, "No content in response"
+        -- 调试：输出 assistantMessage 内容
+        warn("[AI CLI] No content in response. assistantMessage: " .. HttpService:JSONEncode(assistantMessage or {}):sub(1, 500))
+        -- 检查是否有 finish_reason
+        if choice.finish_reason then
+            warn("[AI CLI] finish_reason: " .. tostring(choice.finish_reason))
+        end
+        return nil, "No content in response (finish_reason: " .. tostring(choice.finish_reason) .. ")"
     end
     
     -- 只添加助手消息到历史（用户消息已经在函数开头添加）
