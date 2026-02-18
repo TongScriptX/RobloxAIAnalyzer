@@ -68,6 +68,30 @@ function AIClient:checkAndCompact()
     return false
 end
 
+-- 从 Config 同步消息历史
+function AIClient:syncHistoryFromConfig(Config)
+    if not Config then return end
+    
+    local session = Config:getCurrentSession()
+    if not session or not session.messages then return end
+    
+    -- 同步 Config 的消息到本地历史
+    self.conversationHistory = {}
+    for _, msg in ipairs(session.messages) do
+        if msg.role and msg.content then
+            table.insert(self.conversationHistory, {
+                role = msg.role,
+                content = msg.content
+            })
+        end
+    end
+end
+
+-- 清除历史（切换 session 时调用）
+function AIClient:clearHistory()
+    self.conversationHistory = {}
+end
+
 -- 创建请求体
 local function createRequestBody(provider, messages, options, tools)
     local Config = getDeps()
@@ -116,6 +140,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
     if not Http or not Http:canRequestExternal() then
         return nil, "External HTTP requests not supported"
     end
+    
+    -- 从 Config 同步消息历史
+    self:syncHistoryFromConfig(Config)
     
     -- 添加用户消息到历史
     table.insert(self.conversationHistory, {role = "user", content = userMessage})
@@ -213,8 +240,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "No content in response"
     end
     
-    -- 更新对话历史
-    table.insert(self.conversationHistory, {role = "user", content = userMessage})
+    -- 只添加助手消息到历史（用户消息已经在函数开头添加）
     table.insert(self.conversationHistory, {role = "assistant", content = content})
     
     while #self.conversationHistory > self.maxHistoryLength * 2 do
@@ -314,11 +340,6 @@ Rules:
     end
     
     return self:chat(userMessage, systemPrompt, options)
-end
-
--- 清除对话历史
-function AIClient:clearHistory()
-    self.conversationHistory = {}
 end
 
 -- 测试API连接

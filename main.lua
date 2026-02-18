@@ -322,11 +322,16 @@ function App:init()
     
     -- 加载配置和session
     local cfg = _G.AIAnalyzer.Config
+    local ai = _G.AIAnalyzer.AIClient
     if cfg then
         if cfg.load then cfg:load() end
         if cfg.loadSessions then cfg:loadSessions() end
         if not cfg.CurrentSession then
             cfg:createSession()
+        end
+        -- 同步 AIClient 的历史
+        if ai and ai.syncHistoryFromConfig then
+            ai:syncHistoryFromConfig(cfg)
         end
     end
     
@@ -717,9 +722,16 @@ end
 function App:newSession()
     local ui = _G.AIAnalyzer.UI
     local cfg = _G.AIAnalyzer.Config
+    local AIClient = _G.AIAnalyzer.AIClient
     
     if cfg then
         cfg:createSession()
+        
+        -- 清除 AIClient 的历史
+        if AIClient then
+            AIClient:clearHistory()
+        end
+        
         ui:clearMessages()
         self:refreshSessionList()
         ui:addMessage("🆕 新对话已创建", false)
@@ -729,9 +741,16 @@ end
 function App:switchSession(session)
     local ui = _G.AIAnalyzer.UI
     local cfg = _G.AIAnalyzer.Config
+    local AIClient = _G.AIAnalyzer.AIClient
     
     if cfg then
         cfg:switchSession(session.id)
+        
+        -- 清除 AIClient 的历史，下次发送消息时会从 Config 同步
+        if AIClient then
+            AIClient:clearHistory()
+        end
+        
         self:refreshSessionList()
         
         -- 显示当前session的消息
