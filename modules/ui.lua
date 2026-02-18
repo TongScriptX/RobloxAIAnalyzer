@@ -1336,8 +1336,10 @@ function UI:createResourceView()
     local tabs = {
         {id = "all", text = "全部", icon = "📁"},
         {id = "remotes", text = "Remote", icon = "📤"},
-        {id = "scripts", text = "Script", icon = "📜"},
-        {id = "others", text = "其他", icon = "📦"}
+        {id = "localscripts", text = "Local", icon = "📝"},
+        {id = "serverscripts", text = "Server", icon = "🖥️"},
+        {id = "modulescripts", text = "Module", icon = "📦"},
+        {id = "others", text = "其他", icon = "🔧"}
     }
     
     self.resourceTabs = {}
@@ -1417,7 +1419,9 @@ function UI:createResourceView()
     self.allResources = {
         all = {},
         remotes = {},
-        scripts = {},
+        localscripts = {},
+        serverscripts = {},
+        modulescripts = {},
         others = {}
     }
     
@@ -1488,17 +1492,25 @@ function UI:addResourceToCategory(name, className, path, onClick)
     -- 根据类型分类
     if className:find("Remote") then
         table.insert(self.allResources.remotes, resource)
-    elseif className:find("Script") then
-        table.insert(self.allResources.scripts, resource)
+    elseif className == "LocalScript" then
+        table.insert(self.allResources.localscripts, resource)
+    elseif className == "Script" then
+        table.insert(self.allResources.serverscripts, resource)
+    elseif className == "ModuleScript" then
+        table.insert(self.allResources.modulescripts, resource)
     else
         table.insert(self.allResources.others, resource)
     end
     
     -- 如果当前标签页匹配，直接显示
-    if self.currentResourceTab == "all" or
+    local shouldShow = self.currentResourceTab == "all" or
        (self.currentResourceTab == "remotes" and className:find("Remote")) or
-       (self.currentResourceTab == "scripts" and className:find("Script")) or
-       (self.currentResourceTab == "others" and not className:find("Remote") and not className:find("Script")) then
+       (self.currentResourceTab == "localscripts" and className == "LocalScript") or
+       (self.currentResourceTab == "serverscripts" and className == "Script") or
+       (self.currentResourceTab == "modulescripts" and className == "ModuleScript") or
+       (self.currentResourceTab == "others" and not className:find("Remote") and className ~= "LocalScript" and className ~= "Script" and className ~= "ModuleScript")
+    
+    if shouldShow then
         self:addResourceItem(name, className, path, onClick)
     end
 end
