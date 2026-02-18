@@ -193,8 +193,13 @@ function AIClient:chat(userMessage, systemPrompt, options)
     
     local assistantMessage = choice.message
     
-    -- 处理工具调用
-    if assistantMessage.tool_calls and #assistantMessage.tool_calls > 0 then
+    -- 处理工具调用（循环处理多次工具调用）
+    local maxIterations = 5
+    local iteration = 0
+    
+    while assistantMessage.tool_calls and #assistantMessage.tool_calls > 0 and iteration < maxIterations do
+        iteration = iteration + 1
+        
         -- 添加助手消息到历史
         table.insert(messages, assistantMessage)
         
@@ -238,13 +243,22 @@ function AIClient:chat(userMessage, systemPrompt, options)
             local followUpChoice = followUpResponse.data.choices and followUpResponse.data.choices[1]
             if followUpChoice and followUpChoice.message then
                 assistantMessage = followUpChoice.message
+            else
+                break
             end
+        else
+            break
         end
     end
     
-    local content = assistantMessage and assistantMessage.content
+    -- 获取内容：优先使用 content，其次使用 reasoning_content
+    local content = assistantMessage.content
+    if not content or content == "" then
+        -- 某些模型使用 reasoning_content 字段（如 DeepSeek-R1）
+        content = assistantMessage.reasoning_content
+    end
     
-    if not content then
+    if not content or content == "" then
         -- 调试：输出 assistantMessage 内容
         warn("[AI CLI] No content in response. assistantMessage: " .. HttpService:JSONEncode(assistantMessage or {}):sub(1, 500))
         -- 检查是否有 finish_reason
