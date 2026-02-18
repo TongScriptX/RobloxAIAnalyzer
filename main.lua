@@ -99,42 +99,31 @@ end
 local httpGet
 
 local function getHttpFunc(exec)
-    if exec.request then
+    -- 优先使用 game:HttpGet，更可靠
+    if game.HttpGet then
+        return function(url) return game:HttpGet(url) end
+    elseif exec.request then
         return function(url)
             local r = exec.request({Url = url, Method = "GET"})
             return r.Body or r.body, r.StatusCode or r.statusCode
         end
-    elseif game.HttpGet then
-        return function(url) return game:HttpGet(url) end
     end
     return nil
 end
 
--- 模块加载
--- 备用 CDN 列表（按优先级排序）
-local CDN_URLS = {
-    "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main",
-    "https://cdn.jsdelivr.net/gh/TongScriptX/RobloxAIAnalyzer@main",
-    "https://fastly.jsdelivr.net/gh/TongScriptX/RobloxAIAnalyzer@main",
-    "https://ghproxy.net/https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main",
-    "https://mirror.ghproxy.com/https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
-}
+-- 模块加载 - 只用 GitHub raw，最可靠
+local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
 
 local function loadModule(path)
-    -- 尝试每个 CDN，每个只试1次
-    for _, baseUrl in ipairs(CDN_URLS) do
-        local url = baseUrl .. "/" .. path
-        
-        local ok, res = pcall(httpGet, url)
-        
-        if ok and res and res ~= "" and #res > 10 then
-            local ok2, fn = pcall(loadstring, res)
-            if ok2 and fn then
-                local ok3, mod = pcall(fn)
-                if ok3 then 
-                    return mod 
-                end
-            end
+    local url = BASE_URL .. "/" .. path
+    
+    -- 直接用 game:HttpGet，失败返回 nil
+    local ok, res = pcall(httpGet, url)
+    if ok and res and #res > 10 then
+        local ok2, fn = pcall(loadstring, res)
+        if ok2 and fn then
+            local ok3, mod = pcall(fn)
+            if ok3 then return mod end
         end
     end
     
@@ -208,33 +197,37 @@ function App:init()
     
     _G.AIAnalyzer = {Executor = self.exec}
     
-    -- 加载模块
+    -- 核心模块（必须加载）
     local cfg = loadModule("config.lua")
-    if cfg then _G.AIAnalyzer.Config = cfg; print("[AI CLI] Config OK") end
+    if cfg then _G.AIAnalyzer.Config = cfg else warn("[AI CLI] Config 加载失败") return end
     
     local http = loadModule("modules/http.lua")
-    if http then _G.AIAnalyzer.Http = http; print("[AI CLI] Http OK") end
+    if http then _G.AIAnalyzer.Http = http else warn("[AI CLI] Http 加载失败") end
     
     local scanner = loadModule("modules/scanner.lua")
-    if scanner then _G.AIAnalyzer.Scanner = scanner; print("[AI CLI] Scanner OK") end
+    if scanner then _G.AIAnalyzer.Scanner = scanner else warn("[AI CLI] Scanner 加载失败") end
     
     local reader = loadModule("modules/reader.lua")
-    if reader then _G.AIAnalyzer.Reader = reader; print("[AI CLI] Reader OK") end
+    if reader then _G.AIAnalyzer.Reader = reader else warn("[AI CLI] Reader 加载失败") end
     
     local executor = loadModule("modules/executor.lua")
-    if executor then _G.AIAnalyzer.Executor = executor; print("[AI CLI] Executor OK") end
+    if executor then _G.AIAnalyzer.Executor = executor end
     
     local ui = loadModule("modules/ui.lua")
-    if ui then _G.AIAnalyzer.UI = ui; print("[AI CLI] UI OK") end
+    if not ui then warn("[AI CLI] UI 加载失败") return end
+    _G.AIAnalyzer.UI = ui
     
-    local tools = loadModule("modules/tools.lua")
-    if tools then _G.AIAnalyzer.Tools = tools; print("[AI CLI] Tools OK") end
-    
-    local contextManager = loadModule("modules/context_manager.lua")
-    if contextManager then _G.AIAnalyzer.ContextManager = contextManager; print("[AI CLI] ContextManager OK") end
-    
-    local ai = loadModule("modules/ai_client.lua")
-    if ai then _G.AIAnalyzer.AIClient = ai; print("[AI CLI] AIClient OK") end
+    -- 可选模块（后台加载，不阻塞）
+    spawn(function()
+        local tools = loadModule("modules/tools.lua")
+        if tools then _G.AIAnalyzer.Tools = tools end
+        
+        local ctx = loadModule("modules/context_manager.lua")
+        if ctx then _G.AIAnalyzer.ContextManager = ctx end
+        
+        local ai = loadModule("modules/ai_client.lua")
+        if ai then _G.AIAnalyzer.AIClient = ai end
+    end)
     
     -- 加载配置和session
     local cfg = _G.AIAnalyzer.Config
