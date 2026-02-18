@@ -1029,7 +1029,8 @@ function UI:createSettingsView()
     scrollFrame.BackgroundTransparency = 1
     scrollFrame.ScrollBarThickness = 4
     scrollFrame.ScrollBarImageColor3 = self.Theme.accent
-    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 500)
+    scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
     
     local layout = Instance.new("UIListLayout", scrollFrame)
     layout.Padding = UDim.new(0, 8)
