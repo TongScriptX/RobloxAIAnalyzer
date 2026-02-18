@@ -153,9 +153,10 @@ end
 
 -- 模块加载 - 只用 GitHub raw，最可靠
 local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
+local CACHE_BUSTER = "?v=" .. tostring(os.time())
 
 local function loadModule(path)
-    local url = BASE_URL .. "/" .. path
+    local url = BASE_URL .. "/" .. path .. CACHE_BUSTER
     
     -- 直接用 game:HttpGet，失败返回 nil
     local ok, res = pcall(httpGet, url)
