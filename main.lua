@@ -509,6 +509,13 @@ function App:bindEvents()
         end)
     end
     
+    -- 模型下拉框点击事件
+    if ui.modelDropdown then
+        ui.modelDropdown.MouseButton1Click:Connect(function()
+            ui.modelListFrame.Visible = not ui.modelListFrame.Visible
+        end)
+    end
+    
     ui.confirmToggle.MouseButton1Click:Connect(function()
         if cfg then
             cfg.Settings.confirmBeforeExecute = not cfg.Settings.confirmBeforeExecute
@@ -1116,6 +1123,11 @@ function App:switchProvider(providerName)
             btn.TextColor3 = ui.Theme.text
             btn.Font = Enum.Font.Gotham
         end
+    end
+    
+    -- 更新模型下拉框
+    if ui.updateModelDropdown then
+        ui:updateModelDropdown(providerName)
     end
     
     local provider = Config:getCurrentProvider()

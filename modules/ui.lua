@@ -1007,6 +1007,15 @@ function UI:createSettingsView()
     -- 从全局获取 Config
     local Config = _G.AIAnalyzer and _G.AIAnalyzer.Config
     
+    -- 调试：显示提供商数量
+    if Config and Config.Providers then
+        local count = 0
+        for _ in pairs(Config.Providers) do count = count + 1 end
+        print("[AI CLI] UI 检测到 " .. count .. " 个提供商")
+    else
+        warn("[AI CLI] UI 无法获取 Config 或 Providers")
+    end
+    
     local settingsFrame = Instance.new("Frame", self.mainContent)
     settingsFrame.Name = "SettingsView"
     settingsFrame.Size = UDim2.new(1, 0, 1, 0)
@@ -1134,6 +1143,56 @@ function UI:createSettingsView()
         createCorner(btn, 4)
         providerBtns[prov.key] = btn
     end
+    
+    -- ========== 模型选择（仅部分提供商显示）==========
+    local modelLabel = Instance.new("TextLabel", scrollFrame)
+    modelLabel.Name = "ModelLabel"
+    modelLabel.Size = UDim2.new(1, -8, 0, 16)
+    modelLabel.BackgroundTransparency = 1
+    modelLabel.Text = "模型选择"
+    modelLabel.TextColor3 = self.Theme.text
+    modelLabel.TextSize = 12
+    modelLabel.Font = Enum.Font.GothamBold
+    modelLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local modelFrame = Instance.new("Frame", scrollFrame)
+    modelFrame.Name = "ModelFrame"
+    modelFrame.Size = UDim2.new(1, -8, 0, 28)
+    modelFrame.BackgroundColor3 = self.Theme.backgroundTertiary
+    modelFrame.BorderSizePixel = 0
+    createCorner(modelFrame, 6)
+    
+    local modelDropdown = Instance.new("TextButton", modelFrame)
+    modelDropdown.Name = "ModelDropdown"
+    modelDropdown.Size = UDim2.new(1, -8, 1, 0)
+    modelDropdown.Position = UDim2.new(0, 4, 0, 0)
+    modelDropdown.BackgroundTransparency = 1
+    modelDropdown.Text = "选择模型..."
+    modelDropdown.TextColor3 = self.Theme.text
+    modelDropdown.TextSize = 12
+    modelDropdown.Font = Enum.Font.Gotham
+    modelDropdown.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local modelDropdownArrow = Instance.new("TextLabel", modelFrame)
+    modelDropdownArrow.Size = UDim2.new(0, 20, 1, 0)
+    modelDropdownArrow.Position = UDim2.new(1, -24, 0, 0)
+    modelDropdownArrow.BackgroundTransparency = 1
+    modelDropdownArrow.Text = "▼"
+    modelDropdownArrow.TextColor3 = self.Theme.textSecondary
+    modelDropdownArrow.TextSize = 10
+    modelDropdownArrow.Font = Enum.Font.Gotham
+    
+    -- 模型下拉列表容器（初始隐藏）
+    local modelListFrame = Instance.new("Frame", scrollFrame)
+    modelListFrame.Name = "ModelListFrame"
+    modelListFrame.Size = UDim2.new(1, -8, 0, 0)
+    modelListFrame.BackgroundColor3 = self.Theme.backgroundTertiary
+    modelListFrame.BorderSizePixel = 0
+    modelListFrame.Visible = false
+    createCorner(modelListFrame, 6)
+    
+    local modelListLayout = Instance.new("UIListLayout", modelListFrame)
+    modelListLayout.Padding = UDim.new(0, 2)
     
     -- ========== 脚本设置 ==========
     local scriptSection = Instance.new("TextLabel", scrollFrame)
@@ -1302,6 +1361,9 @@ function UI:createSettingsView()
     self.scriptDirInput = dirInput
     self.confirmToggle = confirmBtn
     self.providerButtons = providerBtns
+    self.modelDropdown = modelDropdown
+    self.modelListFrame = modelListFrame
+    self.modelLabel = modelLabel
     self.saveSettingsBtn = saveBtn
     self.testConnectionBtn = testBtn
     self.clearHistoryBtn = clearHistoryBtn
@@ -1309,7 +1371,72 @@ function UI:createSettingsView()
     self.tokenStatsLabel = tokenStatsLabel
     self.resetTokenBtn = resetTokenBtn
     
+    -- 初始化模型选择
+    self:updateModelDropdown(currentProvider)
+    
     return settingsFrame
+end
+
+-- 更新模型下拉框
+function UI:updateModelDropdown(providerKey)
+    local Config = _G.AIAnalyzer and _G.AIAnalyzer.Config
+    if not Config then return end
+    
+    local provider = Config.Providers[providerKey]
+    if not provider then return end
+    
+    -- 清空现有列表
+    for _, child in ipairs(self.modelListFrame:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    
+    -- 获取模型列表
+    local models = provider.models or {}
+    
+    -- 如果没有模型列表或只有一个模型，隐藏模型选择
+    if #models <= 1 then
+        self.modelLabel.Visible = false
+        self.modelDropdown.Parent.Visible = false
+        self.modelListFrame.Visible = false
+        if #models == 1 then
+            self.modelDropdown.Text = models[1]
+        end
+        return
+    end
+    
+    -- 显示模型选择
+    self.modelLabel.Visible = true
+    self.modelDropdown.Parent.Visible = true
+    
+    -- 设置当前选中的模型
+    local currentModel = provider.defaultModel or models[1]
+    self.modelDropdown.Text = currentModel
+    
+    -- 创建模型选项
+    for i, modelName in ipairs(models) do
+        local option = Instance.new("TextButton", self.modelListFrame)
+        option.Name = "Model_" .. i
+        option.Size = UDim2.new(1, 0, 0, 24)
+        option.BackgroundColor3 = self.Theme.backgroundSecondary
+        option.BorderSizePixel = 0
+        option.Text = "  " .. modelName
+        option.TextColor3 = modelName == currentModel and self.Theme.accent or self.Theme.text
+        option.TextSize = 11
+        option.Font = Enum.Font.Gotham
+        option.TextXAlignment = Enum.TextXAlignment.Left
+        
+        option.MouseButton1Click:Connect(function()
+            self.modelDropdown.Text = modelName
+            self.modelListFrame.Visible = false
+            -- 更新 Config 中的默认模型
+            provider.defaultModel = modelName
+        end)
+    end
+    
+    -- 调整列表高度
+    self.modelListFrame.CanvasSize = UDim2.new(0, 0, 0, #models * 26)
 end
 
 -- 更新执行器信息显示
