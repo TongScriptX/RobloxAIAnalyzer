@@ -1479,6 +1479,18 @@ end
 
 -- 添加资源到分类
 function UI:addResourceToCategory(name, className, path, onClick)
+    -- 确保 allResources 已初始化
+    if not self.allResources then
+        self.allResources = {
+            all = {},
+            remotes = {},
+            localscripts = {},
+            serverscripts = {},
+            modulescripts = {},
+            others = {}
+        }
+    end
+    
     local resource = {
         name = name,
         className = className,

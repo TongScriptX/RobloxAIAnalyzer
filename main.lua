@@ -111,19 +111,23 @@ local function getHttpFunc(exec)
 end
 
 -- 模块加载
--- 备用 CDN 列表
+-- 备用 CDN 列表（按优先级排序）
 local CDN_URLS = {
     "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main",
     "https://cdn.jsdelivr.net/gh/TongScriptX/RobloxAIAnalyzer@main",
-    "https://ghproxy.com/https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
+    "https://fastly.jsdelivr.net/gh/TongScriptX/RobloxAIAnalyzer@main",
+    "https://ghproxy.net/https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main",
+    "https://mirror.ghproxy.com/https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
 }
 
 local function loadModule(path)
     local lastErr
+    local lastUrl
     
     -- 尝试每个 CDN
     for _, baseUrl in ipairs(CDN_URLS) do
         local url = baseUrl .. "/" .. path
+        lastUrl = url
         
         -- 重试3次
         for retry = 1, 3 do
@@ -136,16 +140,19 @@ local function loadModule(path)
                     if ok3 then 
                         print("[AI CLI] 加载成功: " .. path)
                         return mod 
+                    else
+                        lastErr = "执行失败"
                     end
+                else
+                    lastErr = "编译失败"
                 end
+            else
+                lastErr = ok and "空响应" or tostring(res)
             end
-            
-            lastErr = res or "empty response"
-            wait(0.3) -- 重试前等待
         end
     end
     
-    warn("[AI CLI] 加载失败: " .. path .. " (最后错误: " .. tostring(lastErr) .. ")")
+    warn("[AI CLI] 加载失败: " .. path)
     return nil
 end
 
@@ -254,7 +261,15 @@ function App:init()
         end
     end
     
-    self:setupUI()
+    -- 创建UI（添加错误处理）
+    local ok, err = pcall(function()
+        self:setupUI()
+    end)
+    if not ok then
+        warn("[AI CLI] UI创建失败: " .. tostring(err))
+        return
+    end
+    
     self:bindEvents()
     self:setupCallbacks()
     
