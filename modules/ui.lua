@@ -288,9 +288,19 @@ function UI:createMainWindow()
     self:setupDrag(titleBar, mainFrame)
     self:setupFloatDrag(floatBtn)
     
+    -- 保存引用
+    self.screenGui = screenGui
+    self.floatBtn = floatBtn
+    self.mainFrame = mainFrame
+    
     -- 设置关闭/最小化
     closeBtn.MouseButton1Click:Connect(function()
-        screenGui:Destroy()
+        if self.screenGui then
+            self.screenGui:Destroy()
+            self.screenGui = nil
+            self.floatBtn = nil
+            self.mainFrame = nil
+        end
     end)
     
     minBtn.MouseButton1Click:Connect(function()
