@@ -1183,13 +1183,17 @@ function UI:createSettingsView()
     modelDropdownArrow.TextSize = 10
     modelDropdownArrow.Font = Enum.Font.Gotham
     
-    -- 模型下拉列表容器（初始隐藏）
-    local modelListFrame = Instance.new("Frame", scrollFrame)
+    -- 模型下拉列表容器（初始隐藏，使用 ScrollingFrame 支持滚动）
+    local modelListFrame = Instance.new("ScrollingFrame", scrollFrame)
     modelListFrame.Name = "ModelListFrame"
-    modelListFrame.Size = UDim2.new(1, -8, 0, 0)
+    modelListFrame.Size = UDim2.new(1, -8, 0, 150)
     modelListFrame.BackgroundColor3 = self.Theme.backgroundTertiary
     modelListFrame.BorderSizePixel = 0
     modelListFrame.Visible = false
+    modelListFrame.ScrollBarThickness = 4
+    modelListFrame.ScrollBarImageColor3 = self.Theme.accent
+    modelListFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    modelListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
     createCorner(modelListFrame, 6)
     
     local modelListLayout = Instance.new("UIListLayout", modelListFrame)
@@ -1419,7 +1423,7 @@ function UI:updateModelDropdown(providerKey)
     for i, modelName in ipairs(models) do
         local option = Instance.new("TextButton", self.modelListFrame)
         option.Name = "Model_" .. i
-        option.Size = UDim2.new(1, 0, 0, 24)
+        option.Size = UDim2.new(1, -4, 0, 24)
         option.BackgroundColor3 = self.Theme.backgroundSecondary
         option.BorderSizePixel = 0
         option.Text = "  " .. modelName
@@ -1435,9 +1439,6 @@ function UI:updateModelDropdown(providerKey)
             provider.defaultModel = modelName
         end)
     end
-    
-    -- 调整列表高度
-    self.modelListFrame.Size = UDim2.new(1, -8, 0, #models * 26)
 end
 
 -- 更新执行器信息显示
