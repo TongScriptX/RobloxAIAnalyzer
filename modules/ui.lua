@@ -1428,6 +1428,11 @@ function UI:updateModelDropdown(providerKey)
             self.modelListFrame.Visible = false
             -- 更新 Config 中的默认模型
             provider.defaultModel = modelName
+            -- 自动保存设置
+            local Config = _G.AIAnalyzer and _G.AIAnalyzer.Config
+            if Config then
+                Config:save()
+            end
         end)
     end
 end

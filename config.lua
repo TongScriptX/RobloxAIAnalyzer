@@ -488,7 +488,10 @@ function Config:save()
     }
     
     for name, p in pairs(self.Providers) do
-        data.providers[name] = {apiKey = p.apiKey}
+        data.providers[name] = {
+            apiKey = p.apiKey,
+            defaultModel = p.defaultModel
+        }
     end
     
     pcall(function()
@@ -568,8 +571,13 @@ function Config:load()
                 end
                 if data.providers then
                     for name, pData in pairs(data.providers) do
-                        if self.Providers[name] and pData.apiKey then
-                            self.Providers[name].apiKey = pData.apiKey
+                        if self.Providers[name] then
+                            if pData.apiKey then
+                                self.Providers[name].apiKey = pData.apiKey
+                            end
+                            if pData.defaultModel then
+                                self.Providers[name].defaultModel = pData.defaultModel
+                            end
                         end
                     end
                 end
@@ -613,8 +621,13 @@ function Config:load()
                 end
                 if data.providers then
                     for name, pData in pairs(data.providers) do
-                        if self.Providers[name] and pData.apiKey then
-                            self.Providers[name].apiKey = pData.apiKey
+                        if self.Providers[name] then
+                            if pData.apiKey then
+                                self.Providers[name].apiKey = pData.apiKey
+                            end
+                            if pData.defaultModel then
+                                self.Providers[name].defaultModel = pData.defaultModel
+                            end
                         end
                     end
                 end
