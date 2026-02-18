@@ -1004,6 +1004,9 @@ end
 
 -- 创建设置界面
 function UI:createSettingsView()
+    -- 从全局获取 Config
+    local Config = _G.AIAnalyzer and _G.AIAnalyzer.Config
+    
     local settingsFrame = Instance.new("Frame", self.mainContent)
     settingsFrame.Name = "SettingsView"
     settingsFrame.Size = UDim2.new(1, 0, 1, 0)
