@@ -20,56 +20,67 @@ local function detectExecutor()
         request = nil
     }
     
-    -- Synapse X
+    -- 检查 identifyexecutor() 获取准确名称
+    local executorName = nil
+    if identifyexecutor then
+        local ok, name = pcall(identifyexecutor)
+        if ok and name then
+            executorName = tostring(name):lower()
+        end
+    end
+    
+    -- 根据标识判断
+    if executorName then
+        if executorName:find("synapse") then
+            info.name = "Synapse X"
+            info.canDecompile = true
+        elseif executorName:find("script%-ware") or executorName:find("scriptware") then
+            info.name = "Script-Ware"
+            info.canDecompile = true
+        elseif executorName:find("delta") then
+            info.name = "Delta"
+        elseif executorName:find("krnl") then
+            info.name = "KRNL"
+        elseif executorName:find("fluxus") then
+            info.name = "Fluxus"
+        elseif executorName:find("electron") then
+            info.name = "Electron"
+        else
+            info.name = executorName:gsub("^%l", string.upper)
+        end
+    end
+    
+    -- 设置函数
     if syn and syn.request then
-        info.name = "Synapse X"
-        info.canRequest = true
         info.request = syn.request
+        info.canRequest = true
         if syn.writefile then info.writefile = syn.writefile; info.canWrite = true end
         if syn.readfile then info.readfile = syn.readfile end
-        info.canExecute = true
-        info.canDecompile = true
-    -- Script-Ware
-    elseif request and type(request) == "function" then
-        info.name = "Script-Ware"
-        info.canRequest = true
-        info.request = request
-        if writefile then info.writefile = writefile; info.canWrite = true end
-        if readfile then info.readfile = readfile end
-        info.canExecute = true
-        info.canDecompile = true
-    -- KRNL
-    elseif krnl and krnl.request then
-        info.name = "KRNL"
-        info.canRequest = true
-        info.request = krnl.request
-        if writefile then info.writefile = writefile; info.canWrite = true end
-        if readfile then info.readfile = readfile end
-        info.canExecute = true
-    -- Fluxus
-    elseif fluxus and fluxus.request then
-        info.name = "Fluxus"
-        info.canRequest = true
-        info.request = fluxus.request
-        if writefile then info.writefile = writefile; info.canWrite = true end
-        if readfile then info.readfile = readfile end
-        info.canExecute = true
-    -- Electron
-    elseif http and http.request then
-        info.name = "Electron"
-        info.canRequest = true
-        info.request = http.request
-        if writefile then info.writefile = writefile; info.canWrite = true end
-        if readfile then info.readfile = readfile end
-        info.canExecute = true
-    -- Delta / 其他
     elseif http_request then
-        info.name = "Delta"
-        info.canRequest = true
         info.request = http_request
+        info.canRequest = true
         if writefile then info.writefile = writefile; info.canWrite = true end
         if readfile then info.readfile = readfile end
-        info.canExecute = true
+    elseif request and type(request) == "function" then
+        info.request = request
+        info.canRequest = true
+        if writefile then info.writefile = writefile; info.canWrite = true end
+        if readfile then info.readfile = readfile end
+    elseif krnl and krnl.request then
+        info.request = krnl.request
+        info.canRequest = true
+        if writefile then info.writefile = writefile; info.canWrite = true end
+        if readfile then info.readfile = readfile end
+    elseif fluxus and fluxus.request then
+        info.request = fluxus.request
+        info.canRequest = true
+        if writefile then info.writefile = writefile; info.canWrite = true end
+        if readfile then info.readfile = readfile end
+    elseif http and http.request then
+        info.request = http.request
+        info.canRequest = true
+        if writefile then info.writefile = writefile; info.canWrite = true end
+        if readfile then info.readfile = readfile end
     end
     
     -- 检查通用函数
@@ -87,9 +98,13 @@ local function detectExecutor()
         info.readfile = readfile
     end
     
-    -- 检查执行能力
-    if not info.canExecute and (loadstring and getgenv) then
+    -- 检查执行和反编译能力
+    if loadstring and getgenv then
         info.canExecute = true
+    end
+    
+    if decompile or (syn and syn.decompile) then
+        info.canDecompile = true
     end
     
     return info
