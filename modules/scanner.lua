@@ -94,9 +94,13 @@ local function getProperties(instance)
 end
 
 -- 递归扫描
-local function scanInstance(instance, path, depth, results, counters)
+local function scanInstance(instance, path, depth, results, counters, seenInstances)
     if counters.total >= Scanner.config.maxObjects then return end
     if depth > Scanner.config.maxDepth then return end
+    
+    -- 去重检查：使用实例引用作为唯一标识
+    if seenInstances[instance] then return end
+    seenInstances[instance] = true
     
     local currentPath = path .. "." .. instance.Name
     counters.total = counters.total + 1
@@ -124,12 +128,12 @@ local function scanInstance(instance, path, depth, results, counters)
     -- 递归扫描子对象
     local children = instance:GetChildren()
     for _, child in ipairs(children) do
-        scanInstance(child, currentPath, depth + 1, results, counters)
+        scanInstance(child, currentPath, depth + 1, results, counters, seenInstances)
     end
 end
 
 -- 扫描nil instances
-local function scanNilInstances(results, counters)
+local function scanNilInstances(results, counters, seenInstances)
     if not Scanner.config.includeNilInstances then
         return
     end
@@ -146,6 +150,12 @@ local function scanNilInstances(results, counters)
         if counters.total >= Scanner.config.maxObjects then
             break
         end
+        
+        -- 去重检查
+        if seenInstances[instance] then
+            continue
+        end
+        seenInstances[instance] = true
         
         counters.total = counters.total + 1
         local objInfo = createObjectInfo(instance, "nil." .. instance.Name, 0)
@@ -177,6 +187,7 @@ function Scanner:scan()
     }
     
     local counters = { total = 0 }
+    local seenInstances = {}  -- 去重表，使用实例引用
     
     -- 扫描各个服务
     for _, serviceInfo in ipairs(self.config.services) do
@@ -185,12 +196,12 @@ function Scanner:scan()
         
         if service then
             table.insert(results.services, serviceName)
-            scanInstance(service, serviceName, 0, results, counters)
+            scanInstance(service, serviceName, 0, results, counters, seenInstances)
         end
     end
     
     -- 扫描nil instances
-    scanNilInstances(results, counters)
+    scanNilInstances(results, counters, seenInstances)
     
     -- 更新缓存
     self.cache = {

@@ -1007,15 +1007,6 @@ function UI:createSettingsView()
     -- 从全局获取 Config
     local Config = _G.AIAnalyzer and _G.AIAnalyzer.Config
     
-    -- 调试：显示提供商数量
-    if Config and Config.Providers then
-        local count = 0
-        for _ in pairs(Config.Providers) do count = count + 1 end
-        print("[AI CLI] UI 检测到 " .. count .. " 个提供商")
-    else
-        warn("[AI CLI] UI 无法获取 Config 或 Providers")
-    end
-    
     local settingsFrame = Instance.new("Frame", self.mainContent)
     settingsFrame.Name = "SettingsView"
     settingsFrame.Size = UDim2.new(1, 0, 1, 0)
@@ -1873,7 +1864,7 @@ function UI:addResourceItem(name, className, path, onClick)
     end
     
     local item = Instance.new("TextButton", self.resourceList)
-    item.Size = UDim2.new(1, -8, 0, 26)
+    item.Size = UDim2.new(1, -8, 0, 40)  -- 增加高度显示路径
     item.BackgroundColor3 = self.Theme.backgroundSecondary
     item.BorderSizePixel = 0
     item.Text = ""
@@ -1893,8 +1884,9 @@ function UI:addResourceItem(name, className, path, onClick)
         icon = "📝"
     end
     
+    -- 第一行：名称和类型
     local nameText = Instance.new("TextLabel", item)
-    nameText.Size = UDim2.new(0.5, 0, 1, 0)
+    nameText.Size = UDim2.new(0.6, 0, 0.5, 0)
     nameText.Position = UDim2.new(0, 8, 0, 0)
     nameText.BackgroundTransparency = 1
     nameText.Text = icon .. " " .. name
@@ -1905,8 +1897,8 @@ function UI:addResourceItem(name, className, path, onClick)
     nameText.TextTruncate = Enum.TextTruncate.AtEnd
     
     local classText = Instance.new("TextLabel", item)
-    classText.Size = UDim2.new(0.4, 0, 1, 0)
-    classText.Position = UDim2.new(0.55, 0, 0, 0)
+    classText.Size = UDim2.new(0.35, 0, 0.5, 0)
+    classText.Position = UDim2.new(0.62, 0, 0, 0)
     classText.BackgroundTransparency = 1
     classText.Text = className
     classText.TextColor3 = typeColor
@@ -1914,6 +1906,18 @@ function UI:addResourceItem(name, className, path, onClick)
     classText.Font = Enum.Font.Gotham
     classText.TextXAlignment = Enum.TextXAlignment.Left
     classText.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    -- 第二行：路径
+    local pathText = Instance.new("TextLabel", item)
+    pathText.Size = UDim2.new(1, -16, 0.5, 0)
+    pathText.Position = UDim2.new(0, 8, 0.5, 0)
+    pathText.BackgroundTransparency = 1
+    pathText.Text = path
+    pathText.TextColor3 = self.Theme.textMuted
+    pathText.TextSize = 10
+    pathText.Font = Enum.Font.Code
+    pathText.TextXAlignment = Enum.TextXAlignment.Left
+    pathText.TextTruncate = Enum.TextTruncate.AtEnd
     
     item.MouseButton1Click:Connect(onClick)
     
