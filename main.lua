@@ -159,15 +159,29 @@ local function loadModule(path)
     
     -- 直接用 game:HttpGet，失败返回 nil
     local ok, res = pcall(httpGet, url)
-    if ok and res and #res > 10 then
-        local ok2, fn = pcall(loadstring, res)
-        if ok2 and fn then
-            local ok3, mod = pcall(fn)
-            if ok3 then return mod end
-        end
+    if not ok then
+        warn("[AI CLI] HTTP请求失败: " .. path .. " - " .. tostring(res))
+        return nil
     end
     
-    return nil
+    if not res or #res <= 10 then
+        warn("[AI CLI] 响应内容无效: " .. path .. " (长度: " .. tostring(res and #res or 0) .. ")")
+        return nil
+    end
+    
+    local ok2, fn = pcall(loadstring, res)
+    if not ok2 or not fn then
+        warn("[AI CLI] 编译失败: " .. path .. " - " .. tostring(fn))
+        return nil
+    end
+    
+    local ok3, mod = pcall(fn)
+    if not ok3 then
+        warn("[AI CLI] 执行失败: " .. path .. " - " .. tostring(mod))
+        return nil
+    end
+    
+    return mod
 end
 
 -- 脚本操作
