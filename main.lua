@@ -1,8 +1,6 @@
 -- Roblox AI CLI v2.0.0
 -- 用法: loadstring(game:HttpGet("https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main/main.lua"))()
 
-local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
-
 local App = {
     ver = "2.0.0",
     ready = false,
@@ -113,19 +111,41 @@ local function getHttpFunc(exec)
 end
 
 -- 模块加载
+-- 备用 CDN 列表
+local CDN_URLS = {
+    "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main",
+    "https://cdn.jsdelivr.net/gh/TongScriptX/RobloxAIAnalyzer@main",
+    "https://ghproxy.com/https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
+}
+
 local function loadModule(path)
-    local url = BASE_URL .. "/" .. path
-    local ok, res = pcall(httpGet, url)
+    local lastErr
     
-    if ok and res and res ~= "" then
-        local ok2, fn = pcall(loadstring, res)
-        if ok2 and fn then
-            local ok3, mod = pcall(fn)
-            if ok3 then return mod end
+    -- 尝试每个 CDN
+    for _, baseUrl in ipairs(CDN_URLS) do
+        local url = baseUrl .. "/" .. path
+        
+        -- 重试3次
+        for retry = 1, 3 do
+            local ok, res = pcall(httpGet, url)
+            
+            if ok and res and res ~= "" and #res > 10 then
+                local ok2, fn = pcall(loadstring, res)
+                if ok2 and fn then
+                    local ok3, mod = pcall(fn)
+                    if ok3 then 
+                        print("[AI CLI] 加载成功: " .. path)
+                        return mod 
+                    end
+                end
+            end
+            
+            lastErr = res or "empty response"
+            wait(0.3) -- 重试前等待
         end
     end
     
-    warn("[AI CLI] 加载失败: " .. path)
+    warn("[AI CLI] 加载失败: " .. path .. " (最后错误: " .. tostring(lastErr) .. ")")
     return nil
 end
 
