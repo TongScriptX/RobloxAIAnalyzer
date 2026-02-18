@@ -1,4 +1,4 @@
--- AI客户端：支持DeepSeek和OpenAI，支持工具调用
+-- AI客户端：支持DeepSeek和OpenAI，支持工具调用和上下文压缩
 
 local AIClient = {}
 
@@ -7,12 +7,66 @@ local HttpService = game:GetService("HttpService")
 -- 从全局获取依赖
 local function getDeps()
     local deps = _G.AIAnalyzer or {}
-    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader
+    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager
 end
 
 -- 对话历史
 AIClient.conversationHistory = {}
-AIClient.maxHistoryLength = 20
+AIClient.maxHistoryLength = 50  -- 增加历史长度
+
+-- 估算token数
+local function estimateTokens(text)
+    if not text then return 0 end
+    local chineseCount = select(2, text:gsub("[\228-\233]", ""))
+    local otherCount = #text - chineseCount
+    return math.ceil(chineseCount / 1.5 + otherCount / 4)
+end
+
+-- 获取当前上下文使用情况
+function AIClient:getContextUsage()
+    local Config, _, _, _, _, ContextManager = getDeps()
+    local provider = Config and Config:getCurrentProvider()
+    local contextWindow = provider and provider.contextWindow or 64000
+    
+    local used = 0
+    for _, msg in ipairs(self.conversationHistory) do
+        used = used + estimateTokens(msg.content or "") + 10
+    end
+    
+    return {
+        used = used,
+        total = contextWindow,
+        percent = used / contextWindow,
+        remaining = contextWindow - used
+    }
+end
+
+-- 检查并执行上下文压缩
+function AIClient:checkAndCompact()
+    local Config, _, _, _, _, ContextManager = getDeps()
+    local provider = Config and Config:getCurrentProvider()
+    local ctxConfig = Config and Config.ContextConfig
+    
+    if not ctxConfig or not ctxConfig.autoCompact then
+        return false
+    end
+    
+    local usage = self:getContextUsage()
+    
+    -- 检查是否超过阈值
+    if usage.percent >= (ctxConfig.compressionThreshold or 0.70) then
+        -- 执行压缩
+        self.conversationHistory = ContextManager:compact(
+            self.conversationHistory, 
+            ctxConfig,
+            {}
+        )
+        
+        return true
+    end
+    
+    return false
+end
 
 -- 创建请求体
 local function createRequestBody(provider, messages, options, tools)
@@ -44,9 +98,9 @@ local function createHeaders(provider)
     }
 end
 
--- 发送聊天请求（支持工具调用）
+-- 发送聊天请求（支持工具调用和自动压缩）
 function AIClient:chat(userMessage, systemPrompt, options)
-    local Config, Http, Tools, Scanner, Reader = getDeps()
+    local Config, Http, Tools, Scanner, Reader, ContextManager = getDeps()
     options = options or {}
     
     if not Config then
@@ -63,6 +117,12 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "External HTTP requests not supported"
     end
     
+    -- 添加用户消息到历史
+    table.insert(self.conversationHistory, {role = "user", content = userMessage})
+    
+    -- 检查是否需要压缩
+    self:checkAndCompact()
+    
     -- 准备消息
     local messages = {}
     
@@ -73,8 +133,6 @@ function AIClient:chat(userMessage, systemPrompt, options)
     for _, msg in ipairs(self.conversationHistory) do
         table.insert(messages, msg)
     end
-    
-    table.insert(messages, {role = "user", content = userMessage})
     
     -- 获取工具定义
     local tools = Tools and Tools.definitions

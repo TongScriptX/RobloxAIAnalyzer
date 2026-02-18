@@ -3,7 +3,7 @@ local Config = {}
 
 local HttpService = game:GetService("HttpService")
 
--- AI providers
+-- AI providers（包含上下文窗口大小）
 Config.Providers = {
     DeepSeek = {
         name = "DeepSeek",
@@ -11,6 +11,8 @@ Config.Providers = {
         endpoint = "/chat/completions",
         models = {"deepseek-chat", "deepseek-reasoner"},
         defaultModel = "deepseek-chat",
+        contextWindow = 64000,  -- DeepSeek上下文窗口
+        outputLimit = 4096,
         apiKey = ""
     },
     OpenAI = {
@@ -19,8 +21,26 @@ Config.Providers = {
         endpoint = "/v1/chat/completions",
         models = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"},
         defaultModel = "gpt-4o-mini",
+        contextWindow = 128000,  -- GPT-4上下文窗口
+        outputLimit = 4096,
         apiKey = ""
     }
+}
+
+-- 上下文压缩配置
+Config.ContextConfig = {
+    -- 压缩阈值：当使用超过此百分比时触发
+    compressionThreshold = 0.70,  -- 70%
+    -- 输出预留空间（tokens）
+    outputReserve = 8000,
+    -- 压缩预留空间（用于生成摘要）
+    compactionReserve = 4000,
+    -- 是否启用自动压缩
+    autoCompact = true,
+    -- 保留最近N条完整消息（不被压缩）
+    preserveRecentMessages = 4,
+    -- 最小压缩间隔（避免频繁压缩）
+    minCompactInterval = 3,  -- 消息数
 }
 
 -- 执行器相关
@@ -141,9 +161,14 @@ function Config:addMessage(role, content)
         time = os.time()
     })
     
-    -- 更新标题（使用第一条用户消息）
-    if role == "user" and session.title == "新对话" then
-        session.title = content:sub(1, 20) .. (#content > 20 and "..." or "")
+    -- 使用ContextManager生成标题
+    if role == "user" and (session.title == "新对话" or not session.title) then
+        local ContextManager = _G.AIAnalyzer and _G.AIAnalyzer.ContextManager
+        if ContextManager then
+            session.title = ContextManager:generateSessionTitle(session.messages)
+        else
+            session.title = content:sub(1, 20) .. (#content > 20 and "..." or "")
+        end
     end
     
     session.time = os.date("%m/%d %H:%M")

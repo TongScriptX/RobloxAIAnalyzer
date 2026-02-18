@@ -154,7 +154,7 @@ function UI:createMainWindow()
     -- 标题文本
     local titleText = Instance.new("TextLabel", titleBar)
     titleText.Name = "Title"
-    titleText.Size = UDim2.new(1, -120, 1, 0)
+    titleText.Size = UDim2.new(1, -200, 1, 0)
     titleText.Position = UDim2.new(0, 15, 0, 0)
     titleText.BackgroundTransparency = 1
     titleText.Text = "AI Resource Analyzer"
@@ -163,6 +163,33 @@ function UI:createMainWindow()
     titleText.Font = Enum.Font.GothamBold
     titleText.TextXAlignment = Enum.TextXAlignment.Left
     titleText.TextScaled = true
+    
+    -- Token显示区域
+    local tokenDisplay = Instance.new("Frame", titleBar)
+    tokenDisplay.Name = "TokenDisplay"
+    tokenDisplay.Size = UDim2.new(0, 80, 0, 22)
+    tokenDisplay.Position = UDim2.new(1, -175, 0.5, -11)
+    tokenDisplay.BackgroundColor3 = self.Theme.backgroundTertiary
+    tokenDisplay.BorderSizePixel = 0
+    createCorner(tokenDisplay, 4)
+    
+    local tokenIcon = Instance.new("TextLabel", tokenDisplay)
+    tokenIcon.Size = UDim2.new(0, 20, 1, 0)
+    tokenIcon.BackgroundTransparency = 1
+    tokenIcon.Text = "⚡"
+    tokenIcon.TextSize = 12
+    tokenIcon.Font = Enum.Font.Gotham
+    
+    local tokenText = Instance.new("TextLabel", tokenDisplay)
+    tokenText.Name = "TokenText"
+    tokenText.Size = UDim2.new(1, -22, 1, 0)
+    tokenText.Position = UDim2.new(0, 20, 0, 0)
+    tokenText.BackgroundTransparency = 1
+    tokenText.Text = "0 tokens"
+    tokenText.TextColor3 = self.Theme.textSecondary
+    tokenText.TextSize = 10
+    tokenText.Font = Enum.Font.Gotham
+    tokenText.TextXAlignment = Enum.TextXAlignment.Left
     
     -- 状态指示器
     local statusIndicator = Instance.new("Frame", titleBar)
@@ -242,10 +269,20 @@ function UI:createMainWindow()
     self.titleText = titleText
     self.statusIndicator = statusIndicator
     self.statusText = statusText
+    self.tokenDisplay = tokenDisplay
+    self.tokenText = tokenText
     self.sidebar = sidebar
     self.mainContent = mainContent
     self.contentFrame = contentFrame
     self.floatBtn = floatBtn
+    
+    -- Token统计
+    self.tokenStats = {
+        total = 0,
+        prompt = 0,
+        completion = 0,
+        requests = 0
+    }
     
     -- 设置拖动
     self:setupDrag(titleBar, mainFrame)
@@ -1121,6 +1158,46 @@ function UI:createSettingsView()
     confirmBtn.TextXAlignment = Enum.TextXAlignment.Left
     createCorner(confirmBtn, 6)
     
+    -- ========== Token 统计 ==========
+    local tokenSection = Instance.new("TextLabel", scrollFrame)
+    tokenSection.Size = UDim2.new(1, -8, 0, 20)
+    tokenSection.BackgroundTransparency = 1
+    tokenSection.Text = "── Token 统计 ──"
+    tokenSection.TextColor3 = self.Theme.textSecondary
+    tokenSection.TextSize = 12
+    tokenSection.Font = Enum.Font.GothamBold
+    
+    local tokenInfo = Instance.new("Frame", scrollFrame)
+    tokenInfo.Name = "TokenInfo"
+    tokenInfo.Size = UDim2.new(1, -8, 0, 60)
+    tokenInfo.BackgroundColor3 = self.Theme.backgroundTertiary
+    tokenInfo.BorderSizePixel = 0
+    createCorner(tokenInfo, 6)
+    
+    local tokenStatsLabel = Instance.new("TextLabel", tokenInfo)
+    tokenStatsLabel.Name = "TokenStatsLabel"
+    tokenStatsLabel.Size = UDim2.new(1, -12, 1, 0)
+    tokenStatsLabel.Position = UDim2.new(0, 6, 0, 0)
+    tokenStatsLabel.BackgroundTransparency = 1
+    tokenStatsLabel.Text = "总消耗: 0 tokens\n请求次数: 0\n输入: 0 | 输出: 0"
+    tokenStatsLabel.TextColor3 = self.Theme.text
+    tokenStatsLabel.TextSize = 11
+    tokenStatsLabel.Font = Enum.Font.Gotham
+    tokenStatsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    tokenStatsLabel.TextYAlignment = Enum.TextYAlignment.Top
+    tokenStatsLabel.TextWrapped = true
+    
+    local resetTokenBtn = Instance.new("TextButton", scrollFrame)
+    resetTokenBtn.Name = "ResetTokenBtn"
+    resetTokenBtn.Size = UDim2.new(1, -8, 0, 24)
+    resetTokenBtn.BackgroundColor3 = self.Theme.backgroundSecondary
+    resetTokenBtn.BorderSizePixel = 0
+    resetTokenBtn.Text = "重置统计"
+    resetTokenBtn.TextColor3 = self.Theme.textSecondary
+    resetTokenBtn.TextSize = 11
+    resetTokenBtn.Font = Enum.Font.Gotham
+    createCorner(resetTokenBtn, 4)
+    
     -- ========== 历史记录 ==========
     local historySection = Instance.new("TextLabel", scrollFrame)
     historySection.Size = UDim2.new(1, -8, 0, 20)
@@ -1209,6 +1286,8 @@ function UI:createSettingsView()
     self.testConnectionBtn = testBtn
     self.clearHistoryBtn = clearHistoryBtn
     self.exportHistoryBtn = exportHistoryBtn
+    self.tokenStatsLabel = tokenStatsLabel
+    self.resetTokenBtn = resetTokenBtn
     
     return settingsFrame
 end
@@ -1713,6 +1792,65 @@ end
 function UI:updateStatus(status, color)
     self.statusText.Text = status
     self.statusIndicator.BackgroundColor3 = color or self.Theme.warning
+end
+
+-- 更新Token显示
+function UI:updateTokenDisplay(usage)
+    if usage then
+        self.tokenStats.total = self.tokenStats.total + (usage.total_tokens or 0)
+        self.tokenStats.prompt = self.tokenStats.prompt + (usage.prompt_tokens or 0)
+        self.tokenStats.completion = self.tokenStats.completion + (usage.completion_tokens or 0)
+        self.tokenStats.requests = self.tokenStats.requests + 1
+    end
+    
+    -- 更新标题栏显示
+    if self.tokenText then
+        local displayText
+        if self.tokenStats.total >= 1000000 then
+            displayText = string.format("%.1fM", self.tokenStats.total / 1000000)
+        elseif self.tokenStats.total >= 1000 then
+            displayText = string.format("%.1fK", self.tokenStats.total / 1000)
+        else
+            displayText = tostring(self.tokenStats.total)
+        end
+        self.tokenText.Text = displayText .. " tokens"
+    end
+    
+    -- 更新设置页面统计
+    if self.tokenStatsLabel then
+        local function formatNum(n)
+            if n >= 1000000 then
+                return string.format("%.2fM", n / 1000000)
+            elseif n >= 1000 then
+                return string.format("%.1fK", n / 1000)
+            else
+                return tostring(n)
+            end
+        end
+        self.tokenStatsLabel.Text = string.format(
+            "总消耗: %s tokens\n请求次数: %d\n输入: %s | 输出: %s",
+            formatNum(self.tokenStats.total),
+            self.tokenStats.requests,
+            formatNum(self.tokenStats.prompt),
+            formatNum(self.tokenStats.completion)
+        )
+    end
+end
+
+-- 获取Token统计
+function UI:getTokenStats()
+    return self.tokenStats
+end
+
+-- 重置Token统计
+function UI:resetTokenStats()
+    self.tokenStats = {
+        total = 0,
+        prompt = 0,
+        completion = 0,
+        requests = 0
+    }
+    self:updateTokenDisplay()
 end
 
 -- 显示视图

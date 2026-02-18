@@ -218,6 +218,9 @@ function App:init()
     local tools = loadModule("modules/tools.lua")
     if tools then _G.AIAnalyzer.Tools = tools; print("[AI CLI] Tools OK") end
     
+    local contextManager = loadModule("modules/context_manager.lua")
+    if contextManager then _G.AIAnalyzer.ContextManager = contextManager; print("[AI CLI] ContextManager OK") end
+    
     local ai = loadModule("modules/ai_client.lua")
     if ai then _G.AIAnalyzer.AIClient = ai; print("[AI CLI] AIClient OK") end
     
@@ -334,6 +337,11 @@ function App:bindEvents()
     
     ui.exportHistoryBtn.MouseButton1Click:Connect(function()
         self:exportHistory()
+    end)
+    
+    ui.resetTokenBtn.MouseButton1Click:Connect(function()
+        ui:resetTokenStats()
+        ui:addSystemMessage("✅ Token统计已重置")
     end)
     
     ui.scanBtn.MouseButton1Click:Connect(function()
@@ -453,7 +461,40 @@ function App:sendMessage()
         return
     end
     
+    if cmd == "/compress" or cmd == "压缩" then
+        self:compressContext()
+        return
+    end
+    
     self:sendToAI(text)
+end
+
+-- 手动压缩上下文
+function App:compressContext()
+    local ui = _G.AIAnalyzer.UI
+    local ai = _G.AIAnalyzer.AIClient
+    local ctxMgr = _G.AIAnalyzer.ContextManager
+    local cfg = _G.AIAnalyzer.Config
+    
+    if not ai or not ai.conversationHistory or #ai.conversationHistory == 0 then
+        ui:addMessage("⚠️ 对话历史为空", false)
+        return
+    end
+    
+    local before = #ai.conversationHistory
+    
+    if ctxMgr then
+        local ctxConfig = cfg and cfg.ContextConfig or {}
+        ai.conversationHistory = ctxMgr:compact(ai.conversationHistory, ctxConfig, {force = true})
+    else
+        -- 简单压缩：保留最近4条
+        while #ai.conversationHistory > 8 do
+            table.remove(ai.conversationHistory, 1)
+        end
+    end
+    
+    local after = #ai.conversationHistory
+    ui:addMessage(string.format("✅ 上下文已压缩: %d → %d 条消息", before, after), false)
 end
 
 function App:showHelp()
@@ -466,6 +507,7 @@ function App:showHelp()
 • 扫描/scan - 扫描游戏资源
 • 历史/history - 查看对话历史
 • 清除/clear - 清空对话
+• /compress 或 压缩 - 手动压缩上下文
 
 💡 AI使用示例:
 • "分析 game.Players 的结构"
@@ -642,6 +684,11 @@ function App:sendToAI(query)
             ui:addMessage(result.content, false)
             Config:addMessage("assistant", result.content)
             self:refreshSessionList()
+            
+            -- 更新Token统计
+            if result.usage then
+                ui:updateTokenDisplay(result.usage)
+            end
         else
             ui:addMessage("❌ 错误: " .. tostring(err), false)
         end
