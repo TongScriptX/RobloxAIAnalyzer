@@ -238,6 +238,7 @@ function App:init()
         {name = "Reader", path = "modules/reader.lua", key = "Reader", required = true},
         {name = "UI", path = "modules/ui.lua", key = "UI", required = true},
         {name = "Tools", path = "modules/tools.lua", key = "Tools", required = false},
+        {name = "ContextManager", path = "modules/context_manager.lua", key = "ContextManager", required = false},
         {name = "AIClient", path = "modules/ai_client.lua", key = "AIClient", required = true},
     }
     
@@ -535,7 +536,71 @@ function App:sendMessage()
         return
     end
     
+    -- 压缩上下文
+    if cmd == "/compress" or cmd == "压缩" then
+        self:compressContext()
+        return
+    end
+    
+    -- 查看上下文状态
+    if cmd == "/context" or cmd == "上下文" then
+        self:showContextStatus()
+        return
+    end
+    
+    -- 清空上下文
+    if cmd == "/reset" or cmd == "重置上下文" then
+        self:resetContext()
+        return
+    end
+    
     self:sendToAI(text)
+end
+
+-- 压缩上下文
+function App:compressContext()
+    local ui = _G.AIAnalyzer.UI
+    local AIClient = _G.AIAnalyzer.AIClient
+    
+    if not AIClient then
+        ui:addMessage("❌ AIClient模块未加载", false)
+        return
+    end
+    
+    local success, message = AIClient:compressContext()
+    if success then
+        ui:addMessage("✅ " .. message, false)
+    else
+        ui:addMessage("⚠️ " .. tostring(message), false)
+    end
+end
+
+-- 显示上下文状态
+function App:showContextStatus()
+    local ui = _G.AIAnalyzer.UI
+    local AIClient = _G.AIAnalyzer.AIClient
+    
+    if not AIClient then
+        ui:addMessage("❌ AIClient模块未加载", false)
+        return
+    end
+    
+    local status = AIClient:formatContextStatus()
+    ui:addMessage(status, false)
+end
+
+-- 重置上下文
+function App:resetContext()
+    local ui = _G.AIAnalyzer.UI
+    local AIClient = _G.AIAnalyzer.AIClient
+    
+    if not AIClient then
+        ui:addMessage("❌ AIClient模块未加载", false)
+        return
+    end
+    
+    local success, message = AIClient:clearContext()
+    ui:addMessage("✅ " .. message, false)
 end
 
 function App:showHelp()
@@ -547,6 +612,9 @@ function App:showHelp()
 • 帮助/help - 显示此帮助
 • 扫描/scan - 扫描游戏资源
 • 清除/clear - 清空对话
+• /compress - 压缩上下文
+• /context - 查看上下文状态
+• /reset - 重置上下文
 
 💡 AI使用示例:
 • "分析 game.Players 的结构"
@@ -597,6 +665,16 @@ function App:sendToAI(query)
             ui:addMessage(result.content, false)
             if result.usage then
                 ui:updateTokenDisplay(result.usage)
+            end
+            -- 显示上下文状态（如果接近阈值）
+            if result.contextStatus and result.contextStatus.usageRatio and result.contextStatus.usageRatio > 0.5 then
+                local status = result.contextStatus
+                local warning = ""
+                if status.usageRatio >= 0.7 then
+                    warning = " ⚠️ 接近上限，建议使用 /compress 压缩"
+                end
+                ui:addMessage(string.format("📊 上下文: %.0f%% (%d/%d tokens)%s", 
+                    status.usageRatio * 100, status.totalTokens, status.maxTokens, warning), false)
             end
         else
             ui:addMessage("❌ 错误: " .. tostring(err), false)

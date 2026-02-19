@@ -1,4 +1,4 @@
--- AI客户端：支持DeepSeek和OpenAI，支持工具调用
+-- AI客户端：支持DeepSeek和OpenAI，支持工具调用和上下文管理
 local AIClient = {}
 
 local HttpService = game:GetService("HttpService")
@@ -6,7 +6,7 @@ local HttpService = game:GetService("HttpService")
 -- 从全局获取依赖
 local function getDeps()
     local deps = _G.AIAnalyzer or {}
-    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader
+    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager
 end
 
 -- 创建请求体
@@ -39,9 +39,9 @@ local function createHeaders(provider)
     }
 end
 
--- 发送聊天请求（支持工具调用）
+-- 发送聊天请求（支持工具调用和上下文管理）
 function AIClient:chat(userMessage, systemPrompt, options)
-    local Config, Http, Tools, Scanner, Reader = getDeps()
+    local Config, Http, Tools, Scanner, Reader, ContextManager = getDeps()
     options = options or {}
     
     if not Config then
@@ -58,14 +58,30 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "External HTTP requests not supported"
     end
     
-    -- 准备消息（不保留历史）
-    local messages = {}
+    -- 获取或初始化上下文管理器
+    local ctx = ContextManager and ContextManager.getInstance()
     
-    if systemPrompt then
-        table.insert(messages, {role = "system", content = systemPrompt})
+    -- 设置当前模型
+    if ctx then
+        ctx:setModel(provider.defaultModel)
     end
     
-    table.insert(messages, {role = "user", content = userMessage})
+    -- 准备消息（使用上下文管理器）
+    local messages
+    
+    if ctx then
+        -- 添加用户消息到历史
+        ctx:addUserMessage(userMessage)
+        -- 获取包含历史的消息列表
+        messages = ctx:getMessagesForAPI(systemPrompt)
+    else
+        -- 无上下文管理，单次对话
+        messages = {}
+        if systemPrompt then
+            table.insert(messages, {role = "system", content = systemPrompt})
+        end
+        table.insert(messages, {role = "user", content = userMessage})
+    end
     
     -- 获取工具定义
     local tools = Tools and Tools.definitions
@@ -106,7 +122,11 @@ function AIClient:chat(userMessage, systemPrompt, options)
         iteration = iteration + 1
         
         -- 添加助手消息到历史
-        table.insert(messages, assistantMessage)
+        if ctx then
+            ctx:addAssistantMessage(nil, assistantMessage.tool_calls)
+        else
+            table.insert(messages, assistantMessage)
+        end
         
         -- 执行工具调用
         for _, toolCall in ipairs(assistantMessage.tool_calls) do
@@ -138,25 +158,36 @@ function AIClient:chat(userMessage, systemPrompt, options)
             print("[AI CLI] 工具结果: " .. resultText:sub(1, 200))
             
             -- 添加工具结果到消息
-            table.insert(messages, {
-                role = "tool",
-                tool_call_id = toolCall.id,
-                content = resultText
-            })
+            if ctx then
+                ctx:addToolResult(toolCall.id, resultText)
+            else
+                table.insert(messages, {
+                    role = "tool",
+                    tool_call_id = toolCall.id,
+                    content = resultText
+                })
+            end
         end
         
         -- 再次请求AI处理工具结果
-        local followUpBody = createRequestBody(provider, messages, options, tools)
+        local followUpMessages
+        if ctx then
+            followUpMessages = ctx:getMessagesForAPI(systemPrompt)
+        else
+            followUpMessages = messages
+        end
+        
+        local followUpBody = createRequestBody(provider, followUpMessages, options, tools)
         local followUpResponse = Http:jsonRequest(url, "POST", followUpBody, headers)
         
         if not followUpResponse.success then
             warn("[AI CLI] Follow-up request failed: " .. tostring(followUpResponse.error))
-            -- 尝试生成基于工具结果的回复
             local fallbackContent = self:generateFallbackContent(lastToolResults)
             if fallbackContent then
                 return {
                     content = fallbackContent,
-                    provider = provider.name
+                    provider = provider.name,
+                    contextStatus = ctx and ctx:getStatus()
                 }
             end
             return nil, "Tool execution completed but follow-up request failed"
@@ -188,7 +219,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
         if fallbackContent then
             return {
                 content = fallbackContent,
-                provider = provider.name
+                provider = provider.name,
+                contextStatus = ctx and ctx:getStatus()
             }
         end
     end
@@ -213,11 +245,17 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "No content in response (finish_reason: " .. tostring(choice.finish_reason) .. ")"
     end
     
+    -- 添加助手回复到历史
+    if ctx then
+        ctx:addAssistantMessage(content)
+    end
+    
     return {
         content = content,
         model = response.data.model,
         usage = response.data.usage,
-        provider = provider.name
+        provider = provider.name,
+        contextStatus = ctx and ctx:getStatus()
     }
 end
 
@@ -382,6 +420,54 @@ Be concise. Generate working Lua code when asked. Respond in Chinese.]]
     end
     
     return self:chat(userMessage, systemPrompt, options)
+end
+
+-- 手动压缩上下文
+function AIClient:compressContext()
+    local _, _, _, _, _, ContextManager = getDeps()
+    
+    if not ContextManager then
+        return false, "ContextManager not loaded"
+    end
+    
+    local ctx = ContextManager.getInstance()
+    return ctx:compress()
+end
+
+-- 获取上下文状态
+function AIClient:getContextStatus()
+    local _, _, _, _, _, ContextManager = getDeps()
+    
+    if not ContextManager then
+        return nil
+    end
+    
+    local ctx = ContextManager.getInstance()
+    return ctx:getStatus()
+end
+
+-- 格式化上下文状态
+function AIClient:formatContextStatus()
+    local _, _, _, _, _, ContextManager = getDeps()
+    
+    if not ContextManager then
+        return "上下文管理器未加载"
+    end
+    
+    local ctx = ContextManager.getInstance()
+    return ctx:formatStatus()
+end
+
+-- 清空上下文
+function AIClient:clearContext()
+    local _, _, _, _, _, ContextManager = getDeps()
+    
+    if not ContextManager then
+        return false, "ContextManager not loaded"
+    end
+    
+    ContextManager.reset()
+    return true, "上下文已清空"
 end
 
 -- 测试API连接

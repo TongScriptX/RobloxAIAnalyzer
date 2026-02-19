@@ -1,298 +1,389 @@
 -- 上下文管理模块
--- 参考 Claude Code, OpenAI Codex, Gemini Code 的 token 优化策略
--- 核心原则：分层上下文、智能压缩、缓存友好
+-- 管理对话历史、自动压缩、token计数
 
 local ContextManager = {}
 
-local HttpService = game:GetService("HttpService")
-
--- 配置
-ContextManager.config = {
-    -- 压缩阈值（70%使用时触发）
-    compressionThreshold = 0.70,
-    -- 输出预留
-    outputReserve = 8000,
-    -- 压缩预留
-    compactionReserve = 4000,
-    -- 保留最近消息数
-    preserveRecentMessages = 4,
-    -- 最小压缩间隔（消息数）
-    minCompactInterval = 3,
-    -- 自动压缩
-    autoCompact = true
+-- 模型上下文限制配置
+local MODEL_LIMITS = {
+    -- OpenAI
+    ["gpt-4o"] = 128000,
+    ["gpt-4o-mini"] = 128000,
+    ["gpt-4-turbo"] = 128000,
+    ["gpt-4"] = 8192,
+    ["gpt-3.5-turbo"] = 16384,
+    
+    -- DeepSeek
+    ["deepseek-chat"] = 64000,
+    ["deepseek-coder"] = 16000,
+    ["deepseek-reasoner"] = 64000,
+    
+    -- GLM
+    ["glm-4-plus"] = 128000,
+    ["glm-4"] = 128000,
+    ["glm-4-flash"] = 128000,
+    
+    -- 默认
+    ["default"] = 32768
 }
 
--- 状态
-ContextManager.state = {
-    tokenCount = 0,
-    messageCount = 0,
-    lastCompactMessage = 0,
-    summary = nil,
-    keyDecisions = {},
-    completedTasks = {}
-}
+-- 压缩阈值（当使用量超过此比例时自动压缩）
+local COMPRESS_THRESHOLD = 0.70  -- 使用70%时压缩
 
--- Token 估算（优化版）
-local function estimateTokens(text)
-    if not text then return 0 end
-    if type(text) ~= "string" then return 0 end
+-- 初始化
+function ContextManager:init()
+    self.messages = {}  -- 对话历史
+    self.summary = nil  -- 历史摘要
+    self.totalTokens = 0
+    self.maxTokens = MODEL_LIMITS["default"]
     
-    -- 中文约1.5字符/token，英文约4字符/token
-    local chineseCount = select(2, text:gsub("[\228-\233]", ""))
-    local otherCount = #text - chineseCount
-    local tokens = math.ceil(chineseCount / 1.5 + otherCount / 4)
-    
-    return tokens
+    return self
 end
 
--- 估算消息token数（含工具调用）
-local function estimateMessageTokens(message)
-    local total = 10  -- 基础开销
+-- 获取模型上下文限制
+function ContextManager:getModelLimit(modelName)
+    if not modelName then return MODEL_LIMITS["default"] end
+    
+    local model = modelName:lower()
+    
+    -- 精确匹配
+    if MODEL_LIMITS[model] then
+        return MODEL_LIMITS[model]
+    end
+    
+    -- 模糊匹配
+    for pattern, limit in pairs(MODEL_LIMITS) do
+        if model:find(pattern) then
+            return limit
+        end
+    end
+    
+    return MODEL_LIMITS["default"]
+end
+
+-- 设置当前模型
+function ContextManager:setModel(modelName)
+    self.maxTokens = self:getModelLimit(modelName)
+    self.modelName = modelName
+end
+
+-- 估算token数量（简化算法）
+function ContextManager:estimateTokens(text)
+    if not text then return 0 end
+    
+    -- 中文：约1.5字符=1token
+    -- 英文：约4字符=1token
+    -- 混合估算：取中值约2.5字符=1token
+    
+    local chineseCount = 0
+    local totalLen = #text
+    
+    -- 统计中文字符
+    for _ in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        -- 非ASCII字符
+    end
+    
+    -- 简单估算：总长度 / 2.5
+    return math.ceil(totalLen / 2.5)
+end
+
+-- 计算消息的token数
+function ContextManager:countMessageTokens(message)
+    local total = 0
+    
+    -- 角色开销
+    total = total + 4  -- role + content 结构
+    
+    if message.role then
+        total = total + self:estimateTokens(message.role)
+    end
     
     if message.content then
-        total = total + estimateTokens(message.content)
+        total = total + self:estimateTokens(message.content)
+    end
+    
+    if message.name then
+        total = total + self:estimateTokens(message.name)
     end
     
     -- 工具调用
     if message.tool_calls then
         for _, tc in ipairs(message.tool_calls) do
-            total = total + 20  -- 工具调用开销
             if tc["function"] then
-                if tc["function"].name then
-                    total = total + estimateTokens(tc["function"].name)
+                total = total + self:estimateTokens(tc["function"].name)
+                total = total + self:estimateTokens(tc["function"].arguments)
+            end
+        end
+    end
+    
+    return total
+end
+
+-- 重新计算总token数
+function ContextManager:recalculateTokens()
+    self.totalTokens = 0
+    
+    for _, msg in ipairs(self.messages) do
+        self.totalTokens = self.totalTokens + self:countMessageTokens(msg)
+    end
+    
+    return self.totalTokens
+end
+
+-- 添加消息
+function ContextManager:addMessage(role, content, extra)
+    local message = {
+        role = role,
+        content = content
+    }
+    
+    -- 添加额外字段
+    if extra then
+        for k, v in pairs(extra) do
+            message[k] = v
+        end
+    end
+    
+    table.insert(self.messages, message)
+    self.totalTokens = self.totalTokens + self:countMessageTokens(message)
+    
+    -- 检查是否需要压缩
+    if self:shouldCompress() then
+        self:autoCompress()
+    end
+    
+    return message
+end
+
+-- 添加用户消息
+function ContextManager:addUserMessage(content)
+    return self:addMessage("user", content)
+end
+
+-- 添加助手消息
+function ContextManager:addAssistantMessage(content, toolCalls)
+    local extra = nil
+    if toolCalls then
+        extra = { tool_calls = toolCalls }
+    end
+    return self:addMessage("assistant", content, extra)
+end
+
+-- 添加工具结果
+function ContextManager:addToolResult(toolCallId, content)
+    return self:addMessage("tool", content, { tool_call_id = toolCallId })
+end
+
+-- 获取使用率
+function ContextManager:getUsageRatio()
+    if self.maxTokens <= 0 then return 0 end
+    return self.totalTokens / self.maxTokens
+end
+
+-- 是否应该压缩
+function ContextManager:shouldCompress()
+    return self:getUsageRatio() >= COMPRESS_THRESHOLD
+end
+
+-- 自动压缩
+function ContextManager:autoCompress()
+    -- 保留最近的对话，压缩旧的
+    local keepCount = 6  -- 保留最近3轮对话（6条消息）
+    
+    if #self.messages <= keepCount then
+        return false, "消息数量太少，无需压缩"
+    end
+    
+    -- 提取要压缩的消息
+    local toCompress = {}
+    for i = 1, #self.messages - keepCount do
+        table.insert(toCompress, self.messages[i])
+    end
+    
+    -- 生成摘要
+    local oldSummary = self.summary
+    self.summary = self:generateSummary(toCompress, oldSummary)
+    
+    -- 移除已压缩的消息
+    for i = 1, #toCompress do
+        table.remove(self.messages, 1)
+    end
+    
+    -- 重新计算token
+    self:recalculateTokens()
+    
+    -- 如果摘要存在，将其作为系统消息添加
+    if self.summary then
+        -- 摘要token已计入
+    end
+    
+    return true, string.format("已压缩 %d 条消息", #toCompress)
+end
+
+-- 生成摘要
+function ContextManager:generateSummary(messages, oldSummary)
+    local parts = {}
+    
+    if oldSummary then
+        table.insert(parts, "【历史摘要】")
+        table.insert(parts, oldSummary)
+        table.insert(parts, "")
+        table.insert(parts, "【新增对话】")
+    end
+    
+    local userQueries = {}
+    local aiResponses = {}
+    local toolsUsed = {}
+    local codeGenerated = {}
+    
+    for _, msg in ipairs(messages) do
+        if msg.role == "user" then
+            table.insert(userQueries, msg.content)
+        elseif msg.role == "assistant" then
+            if msg.content then
+                -- 提取关键信息
+                local code = msg.content:match("```lua\n(.-)```")
+                if code then
+                    table.insert(codeGenerated, code:sub(1, 200))
                 end
-                if tc["function"].arguments then
-                    total = total + estimateTokens(tc["function"].arguments)
+            end
+            if msg.tool_calls then
+                for _, tc in ipairs(msg.tool_calls) do
+                    if tc["function"] then
+                        table.insert(toolsUsed, tc["function"].name)
+                    end
                 end
             end
         end
     end
     
-    -- 工具结果
-    if message.tool_call_id then
-        total = total + 10
+    -- 生成摘要
+    if #userQueries > 0 then
+        table.insert(parts, "用户问题:")
+        for i, q in ipairs(userQueries) do
+            if i <= 5 then  -- 最多5个问题
+                table.insert(parts, "  - " .. q:sub(1, 100))
+            end
+        end
     end
     
-    return total
-end
-
--- 计算对话总token
-function ContextManager:countTokens(messages)
-    local total = 0
-    for _, msg in ipairs(messages) do
-        total = total + estimateMessageTokens(msg)
+    if #toolsUsed > 0 then
+        table.insert(parts, "使用工具: " .. table.concat(toolsUsed, ", "))
     end
-    return total
+    
+    if #codeGenerated > 0 then
+        table.insert(parts, "生成了 " .. #codeGenerated .. " 段代码")
+    end
+    
+    return table.concat(parts, "\n")
 end
 
--- 获取上下文使用情况
-function ContextManager:getUsage(messages, provider)
-    local contextWindow = provider and provider.contextWindow or 64000
-    local available = contextWindow - self.config.outputReserve
-    local used = self:countTokens(messages)
+-- 手动压缩
+function ContextManager:compress()
+    return self:autoCompress()
+end
+
+-- 清空历史
+function ContextManager:clear()
+    self.messages = {}
+    self.summary = nil
+    self.totalTokens = 0
+end
+
+-- 获取用于API的消息列表
+function ContextManager:getMessagesForAPI(systemPrompt)
+    local result = {}
     
+    -- 系统提示
+    if systemPrompt then
+        table.insert(result, {
+            role = "system",
+            content = systemPrompt
+        })
+    end
+    
+    -- 如果有摘要，添加摘要作为上下文
+    if self.summary then
+        table.insert(result, {
+            role = "system",
+            content = "【对话历史摘要】\n" .. self.summary
+        })
+    end
+    
+    -- 添加对话历史
+    for _, msg in ipairs(self.messages) do
+        table.insert(result, msg)
+    end
+    
+    return result
+end
+
+-- 获取状态信息
+function ContextManager:getStatus()
     return {
-        used = used,
-        total = contextWindow,
-        available = available,
-        percent = used / available,
-        remaining = available - used
+        messageCount = #self.messages,
+        totalTokens = self.totalTokens,
+        maxTokens = self.maxTokens,
+        usageRatio = self:getUsageRatio(),
+        usagePercent = math.floor(self:getUsageRatio() * 100),
+        hasSummary = self.summary ~= nil,
+        modelName = self.modelName
     }
 end
 
--- 检查是否需要压缩
-function ContextManager:shouldCompact(messages, config, provider)
-    config = config or self.config
+-- 格式化状态显示
+function ContextManager:formatStatus()
+    local status = self:getStatus()
+    local bar = self:generateProgressBar(status.usageRatio)
     
-    if not config.autoCompact then
-        return false
-    end
-    
-    local usage = self:getUsage(messages, provider)
-    
-    -- 检查消息间隔，避免频繁压缩
-    local interval = self.state.messageCount - self.state.lastCompactMessage
-    if interval < (config.minCompactInterval or 3) then
-        return false
-    end
-    
-    return usage.percent >= (config.compressionThreshold or 0.70)
+    return string.format(
+        "📊 上下文状态\n" ..
+        "模型: %s\n" ..
+        "消息: %d 条\n" ..
+        "Token: %d / %d (%.1f%%)\n" ..
+        "使用: [%s]\n" ..
+        "摘要: %s",
+        status.modelName or "未知",
+        status.messageCount,
+        status.totalTokens,
+        status.maxTokens,
+        status.usagePercent,
+        bar,
+        status.hasSummary and "已生成" or "无"
+    )
 end
 
--- 智能压缩提示生成（参考 Claude Code）
-function ContextManager:generateCompactPrompt(messages)
-    return [[Create a CONTEXT CHECKPOINT to continue this conversation efficiently.
-
-Format your response as:
-
-## 📋 Summary
-One sentence describing the conversation topic.
-
-## ✅ Completed
-- List completed tasks
-- Key code/decisions made
-
-## 🔄 Current
-- What's being worked on
-- Files/resources involved
-- Errors encountered (and fixes)
-
-## ➡️ Next
-- Clear next steps
-- Pending requests
-
-## 📌 Key Info
-- Important technical decisions
-- User preferences
-- Variable names/patterns discussed
-
-Be concise. Preserve critical details for continuation.]]
+-- 生成进度条
+function ContextManager:generateProgressBar(ratio)
+    local width = 20
+    local filled = math.floor(ratio * width)
+    local empty = width - filled
+    
+    local bar = string.rep("█", filled) .. string.rep("░", empty)
+    
+    -- 颜色标记（使用符号表示）
+    if ratio < 0.5 then
+        return bar .. " 🟢"
+    elseif ratio < 0.7 then
+        return bar .. " 🟡"
+    else
+        return bar .. " 🔴"
+    end
 end
 
--- 提取关键信息（用于压缩后保留）
-function ContextManager:extractKeyInfo(messages)
-    local keyInfo = {
-        decisions = {},
-        files = {},
-        errors = {},
-        userPrefs = {}
-    }
-    
-    for _, msg in ipairs(messages) do
-        local content = msg.content or ""
-        
-        -- 提取文件路径
-        for path in content:gmatch("[%w_/]+%.lua") do
-            table.insert(keyInfo.files, path)
-        end
-        
-        -- 提取错误信息
-        local err = content:match("[Ee]rror[:：]%s*([^\n]+)")
-        if err then
-            table.insert(keyInfo.errors, err)
-        end
+-- 创建单例
+local instance = nil
+
+function ContextManager.getInstance()
+    if not instance then
+        instance = ContextManager:init()
     end
-    
-    return keyInfo
+    return instance
 end
 
--- 执行压缩
-function ContextManager:compact(messages, config, opts)
-    opts = opts or {}
-    config = config or self.config
-    
-    local preserveCount = config.preserveRecentMessages or 4
-    local force = opts.force
-    
-    -- 如果消息太少且非强制，不压缩
-    if #messages <= preserveCount + 2 and not force then
-        return messages
-    end
-    
-    -- 提取关键信息
-    local keyInfo = self:extractKeyInfo(messages)
-    
-    -- 构建摘要
-    local summaryParts = {
-        "[CONTEXT COMPACTED - Key info preserved]"
-    }
-    
-    if #keyInfo.files > 0 then
-        local filesStr = table.concat(keyInfo.files, ", "):sub(1, 200)
-        summaryParts[#summaryParts + 1] = "Files: " .. filesStr
-    end
-    
-    if self.state.summary then
-        summaryParts[#summaryParts + 1] = "Previous: " .. self.state.summary
-    end
-    
-    -- 保留最近的消息
-    local recentMessages = {}
-    local startIdx = math.max(1, #messages - preserveCount + 1)
-    for i = startIdx, #messages do
-        table.insert(recentMessages, messages[i])
-    end
-    
-    -- 构建新消息列表
-    local newMessages = {
-        {
-            role = "assistant",
-            content = table.concat(summaryParts, "\n"),
-            isSummary = true
-        }
-    }
-    
-    for _, msg in ipairs(recentMessages) do
-        table.insert(newMessages, msg)
-    end
-    
-    -- 更新状态
-    self.state.lastCompactMessage = self.state.messageCount
-    
-    return newMessages
-end
-
--- 记录消息
-function ContextManager:recordMessage(message)
-    self.state.messageCount = self.state.messageCount + 1
-    self.state.tokenCount = self.state.tokenCount + estimateMessageTokens(message)
-end
-
--- 生成会话标题
-function ContextManager:generateSessionTitle(messages)
-    -- 遍历找第一条用户消息
-    for _, msg in ipairs(messages) do
-        if msg.role == "user" and msg.content then
-            local content = msg.content
-            
-            -- 清理命令前缀
-            content = content:gsub("^/[%w]+%s*", "")
-            
-            -- 提取关键词
-            local keywords = {}
-            
-            -- 提取中文词
-            for word in content:gmatch("[%z\194-\244][\128-\191]*") do
-                if #word >= 2 and #word <= 10 then
-                    table.insert(keywords, word)
-                end
-            end
-            
-            -- 提取英文词
-            for word in content:gmatch("%w+") do
-                if #word >= 3 then
-                    table.insert(keywords, word)
-                end
-            end
-            
-            -- 取前3个关键词
-            local title = ""
-            for i = 1, math.min(3, #keywords) do
-                title = title .. keywords[i] .. " "
-            end
-            
-            if title ~= "" then
-                return title:sub(1, 25):gsub("%s+$", "")
-            end
-            
-            -- 回退：截取前20字符
-            return content:sub(1, 20):gsub("\n", " ") .. (#content > 20 and "..." or "")
-        end
-    end
-    
-    return "新对话"
-end
-
--- 重置状态
-function ContextManager:reset()
-    self.state = {
-        tokenCount = 0,
-        messageCount = 0,
-        lastCompactMessage = 0,
-        summary = nil,
-        keyDecisions = {},
-        completedTasks = {}
-    }
+-- 重置实例
+function ContextManager.reset()
+    instance = nil
+    return ContextManager.getInstance()
 end
 
 return ContextManager
