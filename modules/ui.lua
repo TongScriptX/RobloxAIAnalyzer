@@ -1583,9 +1583,9 @@ function UI:refreshResourceList()
     local resources = self.allResources[self.currentResourceTab] or {}
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
-    -- 按路径分组
+    -- 按完整父路径分组
     local pathGroups = {}
-    local filteredResources = {}
+    local pathOrder = {}  -- 保持顺序
     
     for _, res in ipairs(resources) do
         -- 搜索过滤
@@ -1593,24 +1593,33 @@ function UI:refreshResourceList()
            res.name:lower():find(searchQuery, 1, true) or 
            res.path:lower():find(searchQuery, 1, true) or
            res.className:lower():find(searchQuery, 1, true) then
-            table.insert(filteredResources, res)
             
-            -- 提取路径的第一级目录
+            -- 提取父路径（去掉最后的资源名）
             local path = res.path or ""
-            local firstSlash = path:find("%.") 
-            local topPath = firstSlash and path:sub(1, firstSlash - 1) or path
+            local lastDot = path:match("^.*()%.")
+            local parentPath = lastDot and path:sub(1, lastDot - 1) or path
             
-            if not pathGroups[topPath] then
-                pathGroups[topPath] = {}
+            -- 确保父路径不包含资源名本身
+            if parentPath == "" then
+                parentPath = path
             end
-            table.insert(pathGroups[topPath], res)
+            
+            if not pathGroups[parentPath] then
+                pathGroups[parentPath] = {}
+                table.insert(pathOrder, parentPath)
+            end
+            table.insert(pathGroups[parentPath], res)
         end
     end
     
+    -- 排序路径（按字母顺序）
+    table.sort(pathOrder)
+    
     -- 按路径分组显示
-    for topPath, groupResources in pairs(pathGroups) do
+    for _, parentPath in ipairs(pathOrder) do
+        local groupResources = pathGroups[parentPath]
         -- 添加路径分组头
-        self:addPathGroupHeader(topPath, #groupResources)
+        self:addPathGroupHeader(parentPath, #groupResources)
         
         -- 添加该路径下的资源
         for _, res in ipairs(groupResources) do
@@ -1910,7 +1919,7 @@ function UI:addResourceItem(name, className, path, onClick, showFullPath)
     end
     
     local item = Instance.new("TextButton", self.resourceList)
-    item.Size = UDim2.new(1, -8, 0, showFullPath and 44 or 40)
+    item.Size = UDim2.new(1, -8, 0, showFullPath and 36 or 40)
     item.BackgroundColor3 = self.Theme.backgroundSecondary
     item.BorderSizePixel = 0
     item.Text = ""
@@ -1930,44 +1939,53 @@ function UI:addResourceItem(name, className, path, onClick, showFullPath)
         icon = "📝"
     end
     
-    -- 第一行：名称和类型
-    local nameText = Instance.new("TextLabel", item)
-    nameText.Size = UDim2.new(0.55, 0, 0.5, 0)
-    nameText.Position = UDim2.new(0, showFullPath and 16 or 8, 0, 0)
-    nameText.BackgroundTransparency = 1
-    nameText.Text = icon .. " " .. name
-    nameText.TextColor3 = self.Theme.text
-    nameText.TextSize = 12
-    nameText.Font = Enum.Font.GothamSemibold
-    nameText.TextXAlignment = Enum.TextXAlignment.Left
-    nameText.TextTruncate = Enum.TextTruncate.AtEnd
-    
-    local classText = Instance.new("TextLabel", item)
-    classText.Size = UDim2.new(0.35, 0, 0.5, 0)
-    classText.Position = UDim2.new(0.58, 0, 0, 0)
-    classText.BackgroundTransparency = 1
-    classText.Text = className
-    classText.TextColor3 = typeColor
-    classText.TextSize = 10
-    classText.Font = Enum.Font.Gotham
-    classText.TextXAlignment = Enum.TextXAlignment.Left
-    classText.TextTruncate = Enum.TextTruncate.AtEnd
-    
-    -- 第二行：完整路径（资源页面）
     if showFullPath then
-        -- 显示完整路径，带缩进
+        -- 资源页面：单行显示完整路径
         local pathText = Instance.new("TextLabel", item)
-        pathText.Size = UDim2.new(1, -24, 0.5, 0)
-        pathText.Position = UDim2.new(0, 16, 0.5, 0)
+        pathText.Size = UDim2.new(1, -80, 1, 0)
+        pathText.Position = UDim2.new(0, 12, 0, 0)
         pathText.BackgroundTransparency = 1
-        pathText.Text = "  " .. path
-        pathText.TextColor3 = self.Theme.textMuted
-        pathText.TextSize = 10
+        pathText.Text = icon .. " " .. path
+        pathText.TextColor3 = self.Theme.text
+        pathText.TextSize = 11
         pathText.Font = Enum.Font.Code
         pathText.TextXAlignment = Enum.TextXAlignment.Left
         pathText.TextTruncate = Enum.TextTruncate.AtEnd
+        
+        local classText = Instance.new("TextLabel", item)
+        classText.Size = UDim2.new(0, 70, 1, 0)
+        classText.Position = UDim2.new(1, -75, 0, 0)
+        classText.BackgroundTransparency = 1
+        classText.Text = className
+        classText.TextColor3 = typeColor
+        classText.TextSize = 10
+        classText.Font = Enum.Font.Gotham
+        classText.TextXAlignment = Enum.TextXAlignment.Right
     else
-        -- 聊天页面显示简短路径
+        -- 聊天页面：两行显示
+        local nameText = Instance.new("TextLabel", item)
+        nameText.Size = UDim2.new(0.55, 0, 0.5, 0)
+        nameText.Position = UDim2.new(0, 8, 0, 0)
+        nameText.BackgroundTransparency = 1
+        nameText.Text = icon .. " " .. name
+        nameText.TextColor3 = self.Theme.text
+        nameText.TextSize = 12
+        nameText.Font = Enum.Font.GothamSemibold
+        nameText.TextXAlignment = Enum.TextXAlignment.Left
+        nameText.TextTruncate = Enum.TextTruncate.AtEnd
+        
+        local classText = Instance.new("TextLabel", item)
+        classText.Size = UDim2.new(0.35, 0, 0.5, 0)
+        classText.Position = UDim2.new(0.58, 0, 0, 0)
+        classText.BackgroundTransparency = 1
+        classText.Text = className
+        classText.TextColor3 = typeColor
+        classText.TextSize = 10
+        classText.Font = Enum.Font.Gotham
+        classText.TextXAlignment = Enum.TextXAlignment.Left
+        classText.TextTruncate = Enum.TextTruncate.AtEnd
+        
+        -- 第二行：简短路径
         local pathText = Instance.new("TextLabel", item)
         pathText.Size = UDim2.new(1, -16, 0.5, 0)
         pathText.Position = UDim2.new(0, 8, 0.5, 0)
