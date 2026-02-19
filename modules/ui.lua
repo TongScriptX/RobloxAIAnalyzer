@@ -1638,31 +1638,43 @@ function UI:createResourceView()
     scanBtn.Font = Enum.Font.GothamBold
     createCorner(scanBtn, 6)
     
-    -- 资源列表
+    -- 资源列表（虚拟列表）
     local resourceList = Instance.new("ScrollingFrame", resourceFrame)
     resourceList.Name = "ResourceList"
     resourceList.Size = UDim2.new(1, -16, 1, -88)
     resourceList.Position = UDim2.new(0, 8, 0, 80)
     resourceList.BackgroundColor3 = self.Theme.backgroundTertiary
     resourceList.BorderSizePixel = 0
-    resourceList.ScrollBarThickness = 5
+    resourceList.ScrollBarThickness = 6
     resourceList.ScrollBarImageColor3 = self.Theme.accent
     resourceList.CanvasSize = UDim2.new(0, 0, 0, 0)
-    resourceList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    resourceList.ScrollingDirection = Enum.ScrollingDirection.Y
     createCorner(resourceList, 8)
     
-    local listLayout = Instance.new("UIListLayout", resourceList)
-    listLayout.Padding = UDim.new(0, 2)
+    -- 虚拟列表容器（用于定位条目）
+    local listContainer = Instance.new("Frame", resourceList)
+    listContainer.Name = "ListContainer"
+    listContainer.Size = UDim2.new(1, 0, 1, 0)
+    listContainer.BackgroundTransparency = 1
+    listContainer.ClipsDescendants = false
     
-    -- 存储资源数据
-    self.allResources = {
-        all = {},
-        remotes = {},
-        localscripts = {},
-        serverscripts = {},
-        modulescripts = {},
-        others = {}
+    -- 虚拟列表状态
+    self.virtualList = {
+        container = listContainer,
+        entries = {},        -- 复用的UI条目池
+        visibleCount = 0,    -- 可见条目数
+        scrollIndex = 0,     -- 当前滚动位置
+        entryHeight = 22,    -- 每个条目高度
+        flattenedTree = {},  -- 扁平化的树（用于虚拟列表）
+        expandedNodes = {},  -- 展开的节点
+        nodeCache = {},      -- 节点缓存
+        totalNodes = 0,      -- 总节点数
     }
+    
+    -- 滚动事件
+    resourceList:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+        self:updateVirtualList()
+    end)
     
     self.resourceView = resourceFrame
     self.resourceSearchBox = searchBox
@@ -1738,48 +1750,28 @@ function UI:buildResourceTree(resources)
     return tree
 end
 
--- 刷新资源列表显示（优化版：限制显示数量）
+-- 刷新资源列表显示（虚拟列表 + 树形目录）
 function UI:refreshResourceList()
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
     -- 类型视图单独处理
     if self.currentResourceTab == "types" then
-        for _, child in pairs(self.resourceList:GetChildren()) do
-            if child:IsA("GuiObject") then
-                child:Destroy()
-            end
-        end
         self:renderTypesView(Scanner)
         return
     end
     
-    -- 清空列表
-    for _, child in pairs(self.resourceList:GetChildren()) do
-        if child:IsA("GuiObject") then
-            child:Destroy()
-        end
-    end
-    
     if not Scanner or not Scanner.cache.typeIndex then
-        self:addResourceItem("请先扫描游戏资源", "", "", nil, false)
+        self:showVirtualMessage("请先扫描游戏资源")
         return
     end
     
-    -- 最大显示数量
-    local maxDisplay = 2000
-    
-    -- 获取资源（带数量限制）
+    -- 获取资源
     local resources = {}
-    local totalCount = 0
-    
     if self.currentResourceTab == "search" then
         if searchQuery ~= "" then
-            local result = Scanner:search(searchQuery, {limit = maxDisplay})
-            for _, r in ipairs(result.results) do
-                table.insert(resources, r)
-            end
-            totalCount = result.totalCount or #resources
+            local result = Scanner:search(searchQuery, {limit = 500})
+            resources = result.results or {}
         end
     elseif self.currentResourceTab == "remotes" then
         for typeName, objects in pairs(Scanner.cache.typeIndex) do
@@ -1789,7 +1781,6 @@ function UI:refreshResourceList()
                 end
             end
         end
-        totalCount = #resources
     elseif self.currentResourceTab == "scripts" then
         for _, typeName in ipairs({"LocalScript", "Script", "ModuleScript"}) do
             local objects = Scanner.cache.typeIndex[typeName]
@@ -1799,54 +1790,332 @@ function UI:refreshResourceList()
                 end
             end
         end
-        totalCount = #resources
     else
-        -- 全部：直接引用，不复制
-        resources = Scanner.cache.objects
-        totalCount = #resources
+        -- 全部：构建树形结构
+        resources = Scanner.cache.objects or {}
     end
     
-    -- 显示数量统计
-    local countLabel = Instance.new("TextLabel", self.resourceList)
-    countLabel.Size = UDim2.new(1, -8, 0, 24)
-    countLabel.BackgroundTransparency = 1
-    countLabel.Text = string.format("共 %d 个对象%s", totalCount, totalCount > maxDisplay and " (显示前" .. maxDisplay .. "个，请使用搜索或按类型筛选)" or "")
-    countLabel.TextColor3 = self.Theme.textMuted
-    countLabel.TextSize = 11
-    countLabel.Font = Enum.Font.Gotham
-    countLabel.TextXAlignment = Enum.TextXAlignment.Left
+    -- 构建节点树
+    self:buildNodeTree(resources)
     
-    -- 渲染资源项（分批）
-    local displayCount = math.min(#resources, maxDisplay)
-    local batchSize = 100
-    local currentIndex = 1
+    -- 扁平化树用于虚拟列表
+    self:flattenNodeTree()
     
-    local function renderBatch()
-        local endIndex = math.min(currentIndex + batchSize - 1, displayCount)
+    -- 更新虚拟列表
+    self:updateVirtualList()
+end
+
+-- 构建节点树
+function UI:buildNodeTree(resources)
+    local vl = self.virtualList
+    vl.nodeCache = {}
+    
+    -- 按服务分组
+    local serviceNodes = {}
+    local otherNodes = {}
+    
+    for _, obj in ipairs(resources) do
+        local path = obj.path or ""
+        local serviceName = path:match("^([^.]+)")
         
-        for i = currentIndex, endIndex do
-            local obj = resources[i]
-            if obj then
-                self:addTreeResourceItem(obj.name, obj.className, obj.path, function()
-                    if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
-                        self.resourceCallbacks.sendToAI(obj)
-                    end
-                end, 0)
+        if serviceName then
+            if not serviceNodes[serviceName] then
+                serviceNodes[serviceName] = {
+                    name = serviceName,
+                    className = "Service",
+                    isFolder = true,
+                    children = {},
+                    depth = 0,
+                    count = 0
+                }
+            end
+            self:addToNodeTree(serviceNodes[serviceName], obj, path, 1)
+            serviceNodes[serviceName].count = serviceNodes[serviceName].count + 1
+        end
+    end
+    
+    -- 转为数组并排序
+    local sortedServices = {}
+    for name, node in pairs(serviceNodes) do
+        table.insert(sortedServices, node)
+    end
+    table.sort(sortedServices, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return a.name < b.name
+    end)
+    
+    vl.nodeCache = sortedServices
+end
+
+-- 递归添加到节点树
+function UI:addToNodeTree(parentNode, obj, path, depth)
+    local parts = {}
+    for part in path:gmatch("[^.]+") do
+        table.insert(parts, part)
+    end
+    
+    -- 跳过已经处理的服务名
+    local current = parentNode
+    for i = depth + 1, #parts - 1 do
+        local partName = parts[i]
+        if not current.children[partName] then
+            current.children[partName] = {
+                name = partName,
+                className = "Folder",
+                isFolder = true,
+                children = {},
+                depth = i - 1,
+                parent = current,
+                count = 0
+            }
+        end
+        current = current.children[partName]
+    end
+    
+    -- 添加最终对象
+    local objName = parts[#parts]
+    if objName then
+        current.children[objName] = {
+            name = objName,
+            className = obj.className,
+            isFolder = false,
+            instance = obj.instance,
+            path = obj.path,
+            depth = #parts - 1,
+            parent = current,
+            objData = obj
+        }
+    end
+end
+
+-- 扁平化树用于虚拟列表渲染
+function UI:flattenNodeTree()
+    local vl = self.virtualList
+    vl.flattenedTree = {}
+    
+    local function flatten(nodes, depth)
+        -- 排序：文件夹在前，然后按名称
+        local sorted = {}
+        for _, node in pairs(nodes) do
+            table.insert(sorted, node)
+        end
+        table.sort(sorted, function(a, b)
+            if a.isFolder ~= b.isFolder then
+                return a.isFolder
+            end
+            if a.count and b.count and a.count ~= b.count then
+                return a.count > b.count
+            end
+            return (a.name or "") < (b.name or "")
+        end)
+        
+        for _, node in ipairs(sorted) do
+            table.insert(vl.flattenedTree, {
+                node = node,
+                depth = depth
+            })
+            
+            -- 如果展开且有子节点，递归
+            local nodeKey = node.path or node.name
+            if node.isFolder and vl.expandedNodes[nodeKey] and node.children then
+                flatten(node.children, depth + 1)
+            end
+        end
+    end
+    
+    flatten(vl.nodeCache, 0)
+    vl.totalNodes = #vl.flattenedTree
+    
+    -- 更新滚动区域大小
+    local canvasHeight = vl.totalNodes * vl.entryHeight
+    self.resourceList.CanvasSize = UDim2.new(0, 0, 0, canvasHeight)
+end
+
+-- 显示虚拟列表消息
+function UI:showVirtualMessage(text)
+    local vl = self.virtualList
+    vl.flattenedTree = {{
+        node = {name = text, className = "", isFolder = false},
+        depth = 0
+    }}
+    vl.totalNodes = 1
+    self.resourceList.CanvasSize = UDim2.new(0, 0, 0, 22)
+    self:updateVirtualList()
+end
+
+-- 更新虚拟列表（核心渲染函数）
+function UI:updateVirtualList()
+    local vl = self.virtualList
+    if not vl or not vl.container then return end
+    
+    local scrollPos = self.resourceList.CanvasPosition.Y
+    local viewHeight = self.resourceList.AbsoluteSize.Y
+    local entryHeight = vl.entryHeight
+    
+    -- 计算可见范围
+    local startIndex = math.floor(scrollPos / entryHeight) + 1
+    local visibleCount = math.ceil(viewHeight / entryHeight) + 2 -- 多渲染2个避免闪烁
+    local endIndex = math.min(startIndex + visibleCount, vl.totalNodes)
+    
+    -- 确保有足够的条目
+    while #vl.entries < visibleCount do
+        local entry = self:createVirtualEntry(#vl.entries + 1)
+        table.insert(vl.entries, entry)
+    end
+    
+    -- 更新每个条目
+    for i, entry in ipairs(vl.entries) do
+        local dataIndex = startIndex + i - 1
+        local nodeInfo = vl.flattenedTree[dataIndex]
+        
+        if nodeInfo and dataIndex <= vl.totalNodes then
+            self:updateVirtualEntry(entry, nodeInfo.node, nodeInfo.depth, dataIndex)
+            entry.Visible = true
+            entry.Position = UDim2.new(0, 0, 0, (dataIndex - 1) * entryHeight)
+        else
+            entry.Visible = false
+        end
+    end
+end
+
+-- 创建虚拟条目
+function UI:createVirtualEntry(index)
+    local vl = self.virtualList
+    local entry = Instance.new("Frame", vl.container)
+    entry.Name = "Entry" .. index
+    entry.Size = UDim2.new(1, 0, 0, vl.entryHeight)
+    entry.BackgroundColor3 = self.Theme.backgroundSecondary
+    entry.BorderSizePixel = 0
+    
+    -- 展开按钮
+    local expandBtn = Instance.new("TextButton", entry)
+    expandBtn.Name = "Expand"
+    expandBtn.Size = UDim2.new(0, 18, 1, 0)
+    expandBtn.Position = UDim2.new(0, 0, 0, 0)
+    expandBtn.BackgroundTransparency = 1
+    expandBtn.Text = ""
+    expandBtn.TextSize = 10
+    expandBtn.Font = Enum.Font.Gotham
+    expandBtn.TextColor3 = self.Theme.textMuted
+    
+    -- 图标
+    local icon = Instance.new("TextLabel", entry)
+    icon.Name = "Icon"
+    icon.Size = UDim2.new(0, 18, 1, 0)
+    icon.Position = UDim2.new(0, 18, 0, 0)
+    icon.BackgroundTransparency = 1
+    icon.Text = "📄"
+    icon.TextSize = 12
+    icon.Font = Enum.Font.Gotham
+    
+    -- 名称
+    local name = Instance.new("TextLabel", entry)
+    name.Name = "Name"
+    name.Size = UDim2.new(1, -100, 1, 0)
+    name.Position = UDim2.new(0, 38, 0, 0)
+    name.BackgroundTransparency = 1
+    name.Text = ""
+    name.TextColor3 = self.Theme.text
+    name.TextSize = 11
+    name.Font = Enum.Font.GothamSemibold
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    -- 类名
+    local class = Instance.new("TextLabel", entry)
+    class.Name = "Class"
+    class.Size = UDim2.new(0, 55, 1, 0)
+    class.Position = UDim2.new(1, -55, 0, 0)
+    class.BackgroundTransparency = 1
+    class.Text = ""
+    class.TextColor3 = self.Theme.textMuted
+    class.TextSize = 9
+    class.Font = Enum.Font.Code
+    class.TextXAlignment = Enum.TextXAlignment.Right
+    
+    -- 点击区域
+    local clickArea = Instance.new("TextButton", entry)
+    clickArea.Name = "ClickArea"
+    clickArea.Size = UDim2.new(1, 0, 1, 0)
+    clickArea.BackgroundTransparency = 1
+    clickArea.Text = ""
+    clickArea.ZIndex = 5
+    
+    return entry
+end
+
+-- 更新虚拟条目内容
+function UI:updateVirtualEntry(entry, node, depth, index)
+    local vl = self.virtualList
+    local expandBtn = entry:FindFirstChild("Expand")
+    local icon = entry:FindFirstChild("Icon")
+    local name = entry:FindFirstChild("Name")
+    local class = entry:FindFirstChild("Class")
+    local clickArea = entry:FindFirstChild("ClickArea")
+    
+    -- 缩进
+    local indent = depth * 16
+    expandBtn.Position = UDim2.new(0, indent, 0, 0)
+    icon.Position = UDim2.new(0, indent + 18, 0, 0)
+    name.Position = UDim2.new(0, indent + 38, 0, 0)
+    
+    -- 展开/折叠按钮
+    if node.isFolder and node.children and next(node.children) then
+        local nodeKey = node.path or node.name
+        local isExpanded = vl.expandedNodes[nodeKey]
+        expandBtn.Text = isExpanded and "▼" or "▶"
+        expandBtn.Visible = true
+        
+        -- 移除旧连接
+        for _, conn in ipairs(expandBtn:GetChildren()) do
+            if conn:IsA("RBXScriptConnection") then
+                conn:Disconnect()
             end
         end
         
-        currentIndex = endIndex + 1
-        
-        -- 继续下一批
-        if currentIndex <= displayCount then
-            spawn(function()
-                wait(0.001)
-                renderBatch()
-            end)
-        end
+        expandBtn.MouseButton1Click:Connect(function()
+            vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
+            self:flattenNodeTree()
+            self:updateVirtualList()
+        end)
+    else
+        expandBtn.Visible = false
     end
     
-    renderBatch()
+    -- 图标
+    if node.isFolder then
+        icon.Text = "📁"
+    elseif node.className and node.className:find("Remote") then
+        icon.Text = "📤"
+    elseif node.className and node.className:find("Script") then
+        icon.Text = "📝"
+    else
+        icon.Text = "📄"
+    end
+    
+    -- 名称
+    local displayCount = node.count and node.count > 0 and (" (" .. node.count .. ")") or ""
+    name.Text = node.name .. displayCount
+    
+    -- 类名
+    class.Text = node.className or ""
+    
+    -- 点击事件
+    clickArea.MouseButton1Click:Connect(function()
+        if not node.isFolder and node.objData then
+            if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
+                self.resourceCallbacks.sendToAI(node.objData)
+            end
+        end
+    end)
+    
+    -- 悬停效果
+    entry.MouseEnter:Connect(function()
+        entry.BackgroundColor3 = self.Theme.accent
+    end)
+    entry.MouseLeave:Connect(function()
+        entry.BackgroundColor3 = self.Theme.backgroundSecondary
+    end)
 end
 
 -- 清空资源列表
@@ -1927,56 +2196,33 @@ function UI:renderTypesView(Scanner)
     end
 end
 
--- 显示某类型的资源列表
+-- 显示某类型的资源列表（使用虚拟列表）
 function UI:showTypeResources(typeName, Scanner)
-    -- 清空当前列表
-    for _, child in pairs(self.resourceList:GetChildren()) do
-        if child:IsA("GuiObject") then
-            child:Destroy()
-        end
-    end
-    
     local resources = Scanner:filterByType(typeName)
-    local maxDisplay = 200
     
-    -- 返回按钮
-    local backBtn = Instance.new("TextButton", self.resourceList)
-    backBtn.Size = UDim2.new(1, -8, 0, 28)
-    backBtn.BackgroundColor3 = self.Theme.accent
-    backBtn.BorderSizePixel = 0
-    backBtn.Text = "← 返回类型列表"
-    backBtn.TextColor3 = Color3.new(1, 1, 1)
-    backBtn.TextSize = 12
-    backBtn.Font = Enum.Font.GothamBold
-    createCorner(backBtn, 4)
-    backBtn.MouseButton1Click:Connect(function()
-        self.currentResourceTab = "types"
-        self:refreshResourceList()
-    end)
+    -- 使用虚拟列表显示
+    local vl = self.virtualList
+    vl.nodeCache = {}
+    vl.flattenedTree = {}
+    vl.expandedNodes = {}
     
-    -- 标题
-    local title = Instance.new("TextLabel", self.resourceList)
-    title.Size = UDim2.new(1, -8, 0, 24)
-    title.BackgroundTransparency = 1
-    title.Text = typeName .. " (" .. #resources .. " 个)"
-    title.TextColor3 = self.Theme.text
-    title.TextSize = 12
-    title.Font = Enum.Font.GothamBold
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    
-    -- 资源列表
-    for i, res in ipairs(resources) do
-        if i > maxDisplay then
-            self:addResourceItem("... 还有 " .. (#resources - maxDisplay) .. " 个", "", "", nil, false)
-            break
-        end
-        
-        self:addTreeResourceItem(res.name, res.className, res.path, function()
-            if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
-                self.resourceCallbacks.sendToAI(res)
-            end
-        end, 0)
+    -- 直接扁平化资源列表
+    for _, res in ipairs(resources) do
+        table.insert(vl.flattenedTree, {
+            node = {
+                name = res.name,
+                className = res.className,
+                isFolder = false,
+                objData = res
+            },
+            depth = 0
+        })
     end
+    vl.totalNodes = #vl.flattenedTree
+    
+    -- 更新滚动区域
+    self.resourceList.CanvasSize = UDim2.new(0, 0, 0, vl.totalNodes * vl.entryHeight)
+    self:updateVirtualList()
 end
 
 -- 渲染树形层级
