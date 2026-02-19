@@ -670,6 +670,14 @@ function UI:hideLoading()
     self.sendBtn.BackgroundColor3 = self.Theme.accent
 end
 
+-- 更新状态显示（用于工具执行时）
+function UI:updateStatus(statusText)
+    if not self.isLoading then return end
+    self.currentStatus = statusText or ""
+    -- 直接更新占位符文字
+    self.inputBox.PlaceholderText = statusText
+end
+
 -- 显示脚本确认提示
 function UI:showConfirmationPrompt(description, codePreview)
     self.isConfirming = true
@@ -704,6 +712,11 @@ end
 
 -- Markdown解析（主要处理代码块）
 local function parseMarkdown(text)
+    -- 防止nil值
+    if not text or type(text) ~= "string" then
+        return {{type = "text", content = tostring(text or "")}}
+    end
+    
     local blocks = {}
     local pos = 1
     local len = #text

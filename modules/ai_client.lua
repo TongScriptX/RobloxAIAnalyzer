@@ -6,7 +6,7 @@ local HttpService = game:GetService("HttpService")
 -- 从全局获取依赖
 local function getDeps()
     local deps = _G.AIAnalyzer or {}
-    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager
+    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager, deps.UI
 end
 
 -- 创建请求体
@@ -41,7 +41,7 @@ end
 
 -- 发送聊天请求（支持工具调用和上下文管理）
 function AIClient:chat(userMessage, systemPrompt, options)
-    local Config, Http, Tools, Scanner, Reader, ContextManager = getDeps()
+    local Config, Http, Tools, Scanner, Reader, ContextManager, UI = getDeps()
     options = options or {}
     
     if not Config then
@@ -143,6 +143,20 @@ function AIClient:chat(userMessage, systemPrompt, options)
             
             print("[AI CLI] 执行工具: " .. toolName)
             
+            -- 更新UI状态显示
+            if UI then
+                local statusMap = {
+                    ["scan_resources"] = "🔍 正在扫描游戏资源...",
+                    ["get_resource_info"] = "📦 正在获取资源信息...",
+                    ["read_script"] = "📄 正在读取脚本...",
+                    ["search_in_script"] = "🔍 正在搜索脚本内容...",
+                    ["run_script"] = "⚡ 正在执行脚本...",
+                    ["get_game_info"] = "🎮 正在获取游戏信息...",
+                    ["list_instances"] = "📋 正在列出实例..."
+                }
+                UI:updateStatus(statusMap[toolName] or ("🔧 执行: " .. toolName))
+            end
+            
             -- 执行工具
             local result
             if Tools then
@@ -172,6 +186,58 @@ function AIClient:chat(userMessage, systemPrompt, options)
             lastToolResults[toolName] = result
             
             print("[AI CLI] 工具结果: " .. resultText:sub(1, 200))
+            
+            -- 在对话中显示工具执行状态
+            if UI then
+                local toolDisplayNames = {
+                    ["scan_resources"] = "扫描游戏资源",
+                    ["get_resource_info"] = "获取资源信息",
+                    ["read_script"] = "读取脚本",
+                    ["search_in_script"] = "搜索脚本内容",
+                    ["run_script"] = "执行脚本",
+                    ["get_game_info"] = "获取游戏信息",
+                    ["list_instances"] = "列出实例"
+                }
+                local displayName = toolDisplayNames[toolName] or toolName
+                
+                -- 构建状态消息
+                local statusMsg = "🔧 **" .. displayName .. "**"
+                
+                -- 添加参数信息
+                if toolArgs then
+                    if toolArgs.path then
+                        statusMsg = statusMsg .. "\n📁 路径: `" .. tostring(toolArgs.path) .. "`"
+                    end
+                    if toolArgs.name then
+                        statusMsg = statusMsg .. "\n📛 名称: `" .. tostring(toolArgs.name) .. "`"
+                    end
+                    if toolArgs.query then
+                        statusMsg = statusMsg .. "\n🔍 查询: `" .. tostring(toolArgs.query):sub(1, 50) .. "`"
+                    end
+                    if toolArgs.pattern then
+                        statusMsg = statusMsg .. "\n🔎 模式: `" .. tostring(toolArgs.pattern) .. "`"
+                    end
+                    if toolArgs.start_line or toolArgs.end_line then
+                        statusMsg = statusMsg .. "\n📍 行范围: " .. tostring(toolArgs.start_line or 1) .. "-" .. tostring(toolArgs.end_line or "末尾")
+                    end
+                    if toolArgs.description then
+                        statusMsg = statusMsg .. "\n📝 描述: " .. tostring(toolArgs.description)
+                    end
+                end
+                
+                -- 添加结果摘要
+                if result.error then
+                    statusMsg = statusMsg .. "\n❌ 错误: " .. tostring(result.error)
+                elseif result.count then
+                    statusMsg = statusMsg .. "\n✅ 找到 " .. tostring(result.count) .. " 个结果"
+                elseif result.length then
+                    statusMsg = statusMsg .. "\n✅ 读取 " .. tostring(result.length) .. " 行"
+                elseif result.success then
+                    statusMsg = statusMsg .. "\n✅ 执行成功"
+                end
+                
+                UI:addSystemMessage(statusMsg)
+            end
             
             -- 添加工具结果到消息
             if ctx then
@@ -405,7 +471,7 @@ end
 
 -- 分析游戏资源
 function AIClient:analyzeResources(query, resourceContext, options)
-    local Config = getDeps()
+    local Config = getDeps()  -- 获取配置，其他依赖在chat中获取
     
     local systemPrompt = [[You are a Roblox game analysis expert. You have access to tools to search and read game resources.
 
