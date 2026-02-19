@@ -31,13 +31,21 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "read_script",
-            description = "读取指定脚本的源代码。需要提供脚本的名称或路径。返回脚本的完整源码。",
+            description = "读取指定脚本的源代码。可以读取完整脚本或指定行范围。返回脚本源码。",
             parameters = {
                 type = "object",
                 properties = {
                     name = {
                         type = "string",
                         description = "脚本名称或路径"
+                    },
+                    start_line = {
+                        type = "integer",
+                        description = "起始行号（可选，从1开始）"
+                    },
+                    end_line = {
+                        type = "integer",
+                        description = "结束行号（可选）"
                     }
                 },
                 required = {"name"}
@@ -177,6 +185,9 @@ end
 -- 读取脚本源码
 function Tools:readScript(args, Reader, Scanner)
     local name = args.name
+    local startLine = args.start_line
+    local endLine = args.end_line
+    
     if not name then
         return {error = "Script name required"}
     end
@@ -193,13 +204,54 @@ function Tools:readScript(args, Reader, Scanner)
         if script.Name:lower():find(nameLower, 1, true) then
             local data = Reader:readScript(script)
             if data and data.source then
+                local source = data.source
+                local totalLines = data.lines or 0
+                
+                -- 处理行范围
+                if startLine or endLine then
+                    startLine = startLine or 1
+                    endLine = endLine or totalLines
+                    
+                    -- 分割成行
+                    local lines = {}
+                    for line in source:gmatch("[^\n]+") do
+                        table.insert(lines, line)
+                    end
+                    
+                    -- 提取指定范围
+                    local rangeLines = {}
+                    for i = startLine, math.min(endLine, #lines) do
+                        table.insert(rangeLines, string.format("%4d: %s", i, lines[i] or ""))
+                    end
+                    
+                    if #rangeLines > 0 then
+                        source = table.concat(rangeLines, "\n")
+                    else
+                        source = "-- No lines in range"
+                    end
+                    
+                    return {
+                        name = data.name,
+                        type = data.className,
+                        path = data.path,
+                        source = source,
+                        size = #source,
+                        lines = totalLines,
+                        lineRange = {
+                            start = startLine,
+                            end_ = math.min(endLine, #lines),
+                            total = #lines
+                        }
+                    }
+                end
+                
                 return {
                     name = data.name,
                     type = data.className,
                     path = data.path,
-                    source = data.source,
-                    size = #data.source,
-                    lines = data.lines
+                    source = source,
+                    size = #source,
+                    lines = totalLines
                 }
             end
         end
@@ -427,7 +479,15 @@ function Tools:formatResult(result)
     elseif result.source then
         parts[#parts + 1] = string.format("Script: %s (%s)", result.name, result.type)
         parts[#parts + 1] = string.format("Path: %s", result.path)
-        parts[#parts + 1] = string.format("Size: %d bytes, %d lines", result.size, result.lines or 0)
+        
+        -- 显示行范围信息
+        if result.lineRange then
+            local r = result.lineRange
+            parts[#parts + 1] = string.format("Lines %d-%d of %d:", r.start, r.end_, r.total)
+        else
+            parts[#parts + 1] = string.format("Size: %d bytes, %d lines", result.size, result.lines or 0)
+        end
+        
         parts[#parts + 1] = "Source:"
         parts[#parts + 1] = "```lua"
         parts[#parts + 1] = result.source
