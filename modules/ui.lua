@@ -1777,7 +1777,14 @@ function UI:refreshResourceList()
     elseif self.currentResourceTab == "remotes" then
         resources = self.allResources["remotes"] or {}
     elseif self.currentResourceTab == "scripts" then
-        resources = self.allResources["scripts"] or {}
+        -- 合并所有脚本类型
+        local allScripts = {}
+        for _, key in ipairs({"localscripts", "serverscripts", "modulescripts"}) do
+            for _, res in ipairs(self.allResources[key] or {}) do
+                table.insert(allScripts, res)
+            end
+        end
+        resources = allScripts
     else
         -- 全部
         resources = self.allResources["all"] or {}
