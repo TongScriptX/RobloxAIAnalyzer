@@ -670,6 +670,38 @@ function UI:hideLoading()
     self.sendBtn.BackgroundColor3 = self.Theme.accent
 end
 
+-- 显示脚本确认提示
+function UI:showConfirmationPrompt(description, codePreview)
+    self.isConfirming = true
+    
+    -- 修改输入框显示确认提示
+    self.inputBox.PlaceholderText = "⚠️ 确认执行: " .. description
+    self.inputBox.Text = ""
+    
+    -- 添加确认消息
+    self:addMessage(string.format([[
+⚠️ **需要确认脚本执行**
+
+📝 描述: %s
+
+📄 代码预览:
+```lua
+%s
+```
+
+请输入 '确认' 执行 或 '取消' 放弃]], 
+        description, 
+        codePreview:sub(1, 300) .. (#codePreview > 300 and "..." or "")
+    ), false)
+end
+
+-- 隐藏确认提示
+function UI:hideConfirmationPrompt()
+    self.isConfirming = false
+    self.inputBox.PlaceholderText = "输入问题或指令..."
+    self.inputBox.Text = ""
+end
+
 -- Markdown解析（主要处理代码块）
 local function parseMarkdown(text)
     local blocks = {}

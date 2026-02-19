@@ -72,7 +72,8 @@ Config.Settings = {
     maxTokens = 4096,
     temperature = 0.7,
     confirmBeforeExecute = true,
-    scriptDir = "workspace"
+    scriptDir = "workspace",
+    runMode = "default"  -- smart(智能), default(默认询问), yolo(从不询问)
 }
 
 -- 检测执行器

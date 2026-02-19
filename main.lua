@@ -517,9 +517,43 @@ function App:sendMessage()
     if text == "" or text:match("^%s*$") then return end
     
     ui.inputBox.Text = ""
-    ui:addMessage(text, true)
     
     local cmd = text:lower():match("^%s*(.-)%s*$")
+    
+    -- 处理确认/取消命令
+    if cmd == "/confirm" or cmd == "确认" or cmd == "y" or cmd == "yes" then
+        self:confirmScriptExecution()
+        return
+    end
+    
+    if cmd == "/cancel" or cmd == "取消" or cmd == "n" or cmd == "no" then
+        self:cancelScriptExecution()
+        return
+    end
+    
+    -- 设置运行模式
+    if cmd == "/mode smart" or cmd == "智能模式" then
+        self:setRunMode("smart")
+        return
+    end
+    
+    if cmd == "/mode default" or cmd == "默认模式" then
+        self:setRunMode("default")
+        return
+    end
+    
+    if cmd == "/mode yolo" or cmd == "yolo模式" then
+        self:setRunMode("yolo")
+        return
+    end
+    
+    -- 如果有待确认的脚本，其他输入视为取消
+    if self.pendingConfirmation then
+        ui:addMessage("⚠️ 有待确认的脚本，请输入 '确认' 或 '取消'", false)
+        return
+    end
+    
+    ui:addMessage(text, true)
     
     if cmd == "帮助" or cmd == "help" then
         self:showHelp()
@@ -603,9 +637,102 @@ function App:resetContext()
     ui:addMessage("✅ " .. message, false)
 end
 
+-- 设置运行模式
+function App:setRunMode(mode)
+    local ui = _G.AIAnalyzer.UI
+    local Tools = _G.AIAnalyzer.Tools
+    
+    if not Tools then
+        ui:addMessage("❌ Tools模块未加载", false)
+        return
+    end
+    
+    Tools:setRunMode(mode)
+    
+    local modeNames = {
+        smart = "智能模式（低风险自动执行）",
+        default = "默认模式（每次询问）",
+        yolo = "YOLO模式（从不询问）"
+    }
+    
+    ui:addMessage("✅ 运行模式已设置为: " .. (modeNames[mode] or mode), false)
+end
+
+-- 确认脚本执行
+function App:confirmScriptExecution()
+    local ui = _G.AIAnalyzer.UI
+    local Tools = _G.AIAnalyzer.Tools
+    
+    if not self.pendingConfirmation then
+        ui:addMessage("⚠️ 没有待确认的脚本", false)
+        return
+    end
+    
+    if not Tools then
+        ui:addMessage("❌ Tools模块未加载", false)
+        self.pendingConfirmation = nil
+        return
+    end
+    
+    ui:addMessage("✅ 已确认，正在执行脚本...", false)
+    
+    -- 执行脚本
+    local result = Tools:executeConfirmed()
+    
+    self.pendingConfirmation = nil
+    
+    -- 显示结果
+    if result.success then
+        local parts = {"✅ 脚本执行成功"}
+        if result.executionTime then
+            parts[#parts + 1] = string.format("耗时: %.3f秒", result.executionTime)
+        end
+        if result.result then
+            parts[#parts + 1] = "返回值: " .. tostring(result.result)
+        end
+        if result.output and #result.output > 0 then
+            parts[#parts + 1] = "输出:"
+            for _, line in ipairs(result.output) do
+                parts[#parts + 1] = "  " .. line
+            end
+        end
+        ui:addMessage(table.concat(parts, "\n"), false)
+    else
+        ui:addMessage("❌ 脚本执行失败: " .. tostring(result.error or result.result), false)
+    end
+end
+
+-- 取消脚本执行
+function App:cancelScriptExecution()
+    local ui = _G.AIAnalyzer.UI
+    local Tools = _G.AIAnalyzer.Tools
+    
+    if not self.pendingConfirmation then
+        ui:addMessage("⚠️ 没有待确认的脚本", false)
+        return
+    end
+    
+    if Tools then
+        Tools:cancelExecution()
+    end
+    
+    self.pendingConfirmation = nil
+    ui:addMessage("⚠️ 脚本执行已取消", false)
+end
+
 function App:showHelp()
     local ui = _G.AIAnalyzer.UI
-    ui:addMessage([[
+    
+    -- 获取当前运行模式
+    local Tools = _G.AIAnalyzer.Tools
+    local currentMode = Tools and Tools:getRunMode() or "default"
+    local modeNames = {
+        smart = "智能",
+        default = "默认",
+        yolo = "YOLO"
+    }
+    
+    ui:addMessage(string.format([[
 📖 帮助信息
 
 📌 基础命令:
@@ -615,6 +742,15 @@ function App:showHelp()
 • /compress - 压缩上下文
 • /context - 查看上下文状态
 • /reset - 重置上下文
+
+🔒 运行模式 (当前: %s):
+• /mode smart - 智能模式（低风险自动执行）
+• /mode default - 默认模式（每次询问）
+• /mode yolo - YOLO模式（从不询问）
+
+✅ 脚本确认:
+• 确认/yes - 确认执行脚本
+• 取消/no - 取消执行脚本
 
 💡 AI使用示例:
 • "分析 game.Players 的结构"
@@ -685,6 +821,13 @@ function App:sendToAI(query)
                 end
                 ui:addMessage(string.format("📊 上下文: %.0f%% (%d/%d tokens)%s", 
                     status.usageRatio * 100, status.totalTokens, status.maxTokens, warning), false)
+            end
+            
+            -- 检查是否需要确认脚本执行
+            if result.needsConfirmation then
+                self.pendingConfirmation = true
+                -- 在输入栏显示确认提示
+                ui:showConfirmationPrompt(result.description, result.codePreview)
             end
         else
             ui:addMessage("❌ 错误: " .. tostring(err), false)

@@ -115,8 +115,195 @@ Tools.definitions = {
                 required = {"text"}
             }
         }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "run_script",
+            description = "运行Lua代码并返回结果。可以获取输出和错误信息。运行前会根据模式决定是否询问用户确认。",
+            parameters = {
+                type = "object",
+                properties = {
+                    code = {
+                        type = "string",
+                        description = "要运行的Lua代码"
+                    },
+                    description = {
+                        type = "string",
+                        description = "代码功能的简短描述（用于向用户说明）"
+                    },
+                    risk_level = {
+                        type = "string",
+                        enum = {"low", "medium", "high"},
+                        description = "风险等级：low(只读/查询)、medium(修改游戏状态)、high(可能影响其他玩家)"
+                    }
+                },
+                required = {"code", "description"}
+            }
+        }
     }
 }
+
+-- 运行模式：smart(智能), default(默认询问), yolo(从不询问)
+Tools.runMode = "default"
+
+-- 高风险关键词（用于智能模式判断）
+local HIGH_RISK_PATTERNS = {
+    "FireServer", "InvokeServer", "RemoteEvent", "RemoteFunction",
+    "kick", "Kick", "ban", "Ban",
+    "destroy", "Destroy", "remove", "Remove",
+    "sethiddenproperty", "setsimulationradius",
+    "gethiddenproperty", "request",
+    "HttpPost", "HttpGet"
+}
+
+-- 设置运行模式
+function Tools:setRunMode(mode)
+    if mode == "smart" or mode == "default" or mode == "yolo" then
+        self.runMode = mode
+        return true
+    end
+    return false
+end
+
+-- 获取运行模式
+function Tools:getRunMode()
+    return self.runMode
+end
+
+-- 检查代码风险（智能模式使用）
+function Tools:analyzeRisk(code)
+    local riskLevel = "low"
+    local reasons = {}
+    
+    for _, pattern in ipairs(HIGH_RISK_PATTERNS) do
+        if code:find(pattern, 1, true) then
+            riskLevel = "high"
+            table.insert(reasons, "包含: " .. pattern)
+        end
+    end
+    
+    -- 检查是否有循环或大量操作
+    if code:find("while%s+true") or code:find("for%s+%w+%s*=") then
+        if riskLevel ~= "high" then
+            riskLevel = "medium"
+        end
+        table.insert(reasons, "包含循环结构")
+    end
+    
+    -- 检查是否有延迟操作
+    if code:find("wait%s*%(") or code:find("task%.wait") then
+        if riskLevel ~= "high" then
+            riskLevel = "medium"
+        end
+        table.insert(reasons, "包含等待操作")
+    end
+    
+    return riskLevel, reasons
+end
+
+-- 判断是否需要询问用户
+function Tools:shouldAskUser(code, riskLevel)
+    if self.runMode == "yolo" then
+        return false, "YOLO模式"
+    elseif self.runMode == "smart" then
+        -- 智能模式：low风险不询问
+        if riskLevel == "low" then
+            return false, "智能模式-低风险"
+        else
+            return true, "智能模式-" .. riskLevel .. "风险"
+        end
+    else
+        -- 默认模式：总是询问
+        return true, "默认模式"
+    end
+end
+
+-- 等待用户确认（通过全局变量）
+function Tools:waitForConfirmation(description, code)
+    -- 设置等待状态
+    self.pendingExecution = {
+        description = description,
+        code = code
+    }
+    
+    -- 返回特殊标记，表示需要等待确认
+    return {
+        needsConfirmation = true,
+        description = description,
+        codePreview = code:sub(1, 200) .. (#code > 200 and "..." or "")
+    }
+end
+
+-- 执行确认后的代码
+function Tools:executeConfirmed()
+    if not self.pendingExecution then
+        return {error = "No pending execution"}
+    end
+    
+    local code = self.pendingExecution.code
+    self.pendingExecution = nil
+    
+    return self:runCode(code)
+end
+
+-- 取消执行
+function Tools:cancelExecution()
+    self.pendingExecution = nil
+    return {cancelled = true}
+end
+
+-- 实际运行代码
+function Tools:runCode(code)
+    local startTime = tick()
+    local output = {}
+    local success, result
+    
+    -- 重定向print输出
+    local oldPrint = print
+    local oldWarn = warn
+    
+    print = function(...)
+        local args = {...}
+        local str = ""
+        for i, v in ipairs(args) do
+            str = str .. tostring(v) .. (i < #args and " " or "")
+        end
+        table.insert(output, "[OUTPUT] " .. str)
+    end
+    
+    warn = function(...)
+        local args = {...}
+        local str = ""
+        for i, v in ipairs(args) do
+            str = str .. tostring(v) .. (i < #args and " " or "")
+        end
+        table.insert(output, "[WARN] " .. str)
+    end
+    
+    -- 执行代码
+    local fn, err = loadstring(code)
+    if not fn then
+        success = false
+        result = "语法错误: " .. tostring(err)
+    else
+        success, result = pcall(fn)
+    end
+    
+    -- 恢复print
+    print = oldPrint
+    warn = oldWarn
+    
+    local executionTime = tick() - startTime
+    
+    return {
+        success = success,
+        result = result and tostring(result) or nil,
+        output = #output > 0 and output or nil,
+        executionTime = executionTime,
+        error = not success and result or nil
+    }
+end
 
 -- 执行工具调用
 function Tools:execute(toolName, args, context)
@@ -133,6 +320,8 @@ function Tools:execute(toolName, args, context)
         return self:listResources(args, Scanner)
     elseif toolName == "search_in_script" then
         return self:searchInScript(args, Reader, Scanner)
+    elseif toolName == "run_script" then
+        return self:runScript(args)
     end
     
     return {error = "Unknown tool: " .. toolName}
@@ -426,6 +615,36 @@ function Tools:searchInScript(args, Reader, Scanner)
     }
 end
 
+-- 运行脚本
+function Tools:runScript(args)
+    local code = args.code
+    local description = args.description or "执行脚本"
+    local riskLevel = args.risk_level
+    
+    if not code or code == "" then
+        return {error = "代码不能为空"}
+    end
+    
+    -- 如果没有提供风险等级，自动分析
+    if not riskLevel then
+        riskLevel = select(1, self:analyzeRisk(code))
+    end
+    
+    -- 判断是否需要询问
+    local needAsk, reason = self:shouldAskUser(code, riskLevel)
+    
+    if needAsk then
+        -- 需要用户确认
+        return self:waitForConfirmation(description, code)
+    else
+        -- 直接执行
+        local result = self:runCode(code)
+        result.mode = reason
+        result.description = description
+        return result
+    end
+end
+
 -- 生成Remote调用示例
 function Tools:generateRemoteExample(remote)
     local varName = remote.name:gsub("%s+", "_"):gsub("[^%w_]", "")
@@ -451,6 +670,50 @@ function Tools:formatResult(result)
     
     -- 简洁格式化
     local parts = {}
+    
+    -- 需要用户确认的情况
+    if result.needsConfirmation then
+        parts[#parts + 1] = "⏳ 需要确认运行脚本:"
+        parts[#parts + 1] = "描述: " .. result.description
+        parts[#parts + 1] = "代码预览:"
+        parts[#parts + 1] = "```lua"
+        parts[#parts + 1] = result.codePreview
+        parts[#parts + 1] = "```"
+        parts[#parts + 1] = "[等待用户确认...]"
+        return table.concat(parts, "\n")
+    end
+    
+    -- 运行结果
+    if result.success ~= nil then
+        if result.success then
+            parts[#parts + 1] = "✅ 脚本执行成功"
+            if result.mode then
+                parts[#parts + 1] = "模式: " .. result.mode
+            end
+            if result.executionTime then
+                parts[#parts + 1] = string.format("耗时: %.3f秒", result.executionTime)
+            end
+            if result.result then
+                parts[#parts + 1] = "返回值: " .. result.result
+            end
+            if result.output and #result.output > 0 then
+                parts[#parts + 1] = "输出:"
+                for _, line in ipairs(result.output) do
+                    parts[#parts + 1] = "  " .. line
+                end
+            end
+        else
+            parts[#parts + 1] = "❌ 脚本执行失败"
+            if result.error then
+                parts[#parts + 1] = "错误: " .. tostring(result.error)
+            end
+        end
+        return table.concat(parts, "\n")
+    end
+    
+    if result.cancelled then
+        return "⚠️ 脚本执行已取消"
+    end
     
     if result.results and result.searchText then
         -- search_in_script 结果

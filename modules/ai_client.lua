@@ -154,6 +154,19 @@ function AIClient:chat(userMessage, systemPrompt, options)
                 result = {error = "Tools module not loaded"}
             end
             
+            -- 检查是否需要用户确认
+            if result.needsConfirmation then
+                print("[AI CLI] 需要用户确认运行脚本")
+                return {
+                    needsConfirmation = true,
+                    description = result.description,
+                    codePreview = result.codePreview,
+                    toolCallId = toolCall.id,
+                    provider = provider.name,
+                    contextStatus = ctx and ctx:getStatus()
+                }
+            end
+            
             -- 格式化结果
             local resultText = Tools and Tools:formatResult(result) or HttpService:JSONEncode(result)
             lastToolResults[toolName] = result
