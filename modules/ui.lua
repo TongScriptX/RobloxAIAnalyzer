@@ -1570,6 +1570,51 @@ function UI:switchResourceTab(tabId)
     self:refreshResourceList()
 end
 
+-- 构建资源树形结构
+function UI:buildResourceTree(resources)
+    local tree = {}
+    
+    for _, res in ipairs(resources) do
+        local path = res.path or ""
+        local parts = {}
+        
+        -- 分割路径
+        for part in path:gmatch("[^%.]+") do
+            table.insert(parts, part)
+        end
+        
+        -- 构建树
+        local current = tree
+        for i, part in ipairs(parts) do
+            local isLast = i == #parts
+            
+            if not current[part] then
+                current[part] = {
+                    name = part,
+                    children = {},
+                    resources = {},
+                    isFolder = not isLast,
+                    expanded = false
+                }
+            end
+            
+            if isLast then
+                -- 最后一个部分是资源
+                current[part].resources[#current[part].resources + 1] = res
+                current[part].className = res.className
+                current[part].onClick = res.onClick
+                current[part].isFolder = false
+            else
+                -- 中间部分是文件夹
+                current[part].isFolder = true
+                current = current[part].children
+            end
+        end
+    end
+    
+    return tree
+end
+
 -- 刷新资源列表显示
 function UI:refreshResourceList()
     -- 清空当前列表
@@ -1583,93 +1628,216 @@ function UI:refreshResourceList()
     local resources = self.allResources[self.currentResourceTab] or {}
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
-    -- 按完整父路径分组
-    local pathGroups = {}
-    local pathOrder = {}  -- 保持顺序
-    
+    -- 过滤资源
+    local filteredResources = {}
     for _, res in ipairs(resources) do
-        -- 搜索过滤
         if searchQuery == "" or 
            res.name:lower():find(searchQuery, 1, true) or 
            res.path:lower():find(searchQuery, 1, true) or
            res.className:lower():find(searchQuery, 1, true) then
-            
-            -- 提取父路径（去掉最后的资源名）
-            local path = res.path or ""
-            local lastDot = path:match("^.*()%.")
-            local parentPath = lastDot and path:sub(1, lastDot - 1) or path
-            
-            -- 确保父路径不包含资源名本身
-            if parentPath == "" then
-                parentPath = path
-            end
-            
-            if not pathGroups[parentPath] then
-                pathGroups[parentPath] = {}
-                table.insert(pathOrder, parentPath)
-            end
-            table.insert(pathGroups[parentPath], res)
+            table.insert(filteredResources, res)
         end
     end
     
-    -- 排序路径（按字母顺序）
-    table.sort(pathOrder)
+    -- 构建树形结构
+    local tree = self:buildResourceTree(filteredResources)
     
-    -- 按路径分组显示
-    for _, parentPath in ipairs(pathOrder) do
-        local groupResources = pathGroups[parentPath]
-        -- 添加路径分组头
-        self:addPathGroupHeader(parentPath, #groupResources)
+    -- 存储展开状态
+    if not self.expandedPaths then
+        self.expandedPaths = {}
+    end
+    
+    -- 渲染树形结构
+    self:renderTreeLevel(tree, 0)
+end
+
+-- 渲染树形层级
+function UI:renderTreeLevel(tree, depth)
+    -- 获取排序后的键
+    local keys = {}
+    for key, node in pairs(tree) do
+        table.insert(keys, {key = key, node = node})
+    end
+    
+    -- 排序：文件夹在前，然后按名称排序
+    table.sort(keys, function(a, b)
+        if a.node.isFolder ~= b.node.isFolder then
+            return a.node.isFolder
+        end
+        return a.key:lower() < b.key:lower()
+    end)
+    
+    for _, item in ipairs(keys) do
+        local node = item.node
+        local indent = string.rep("  ", depth)
         
-        -- 添加该路径下的资源
-        for _, res in ipairs(groupResources) do
-            self:addResourceItem(res.name, res.className, res.path, res.onClick, true)
+        if node.isFolder then
+            -- 渲染文件夹
+            local pathKey = indent .. node.name
+            local isExpanded = self.expandedPaths[pathKey]
+            
+            self:addTreeFolderItem(node.name, depth, isExpanded, #node.children, pathKey)
+            
+            if isExpanded then
+                -- 渲染子节点
+                self:renderTreeLevel(node.children, depth + 1)
+            end
+        else
+            -- 渲染资源项
+            for _, res in ipairs(node.resources) do
+                self:addTreeResourceItem(res.name, res.className, res.path, res.onClick, depth)
+            end
         end
     end
 end
 
--- 添加路径分组头
-function UI:addPathGroupHeader(path, count)
-    local header = Instance.new("Frame", self.resourceList)
-    header.Size = UDim2.new(1, -8, 0, 28)
-    header.BackgroundColor3 = self.Theme.background
-    header.BorderSizePixel = 0
-    createCorner(header, 4)
+-- 添加树形文件夹项
+function UI:addTreeFolderItem(name, depth, isExpanded, childCount, pathKey)
+    local item = Instance.new("TextButton", self.resourceList)
+    item.Size = UDim2.new(1, -8, 0, 26)
+    item.BackgroundColor3 = self.Theme.backgroundSecondary
+    item.BorderSizePixel = 0
+    item.Text = ""
+    createCorner(item, 4)
     
-    local icon = "📁"
-    if path:find("ReplicatedStorage") then
-        icon = "🔄"
-    elseif path:find("Workspace") then
-        icon = "🗺️"
-    elseif path:find("Players") then
-        icon = "👥"
-    elseif path:find("Lighting") then
-        icon = "💡"
-    elseif path:find("StarterGui") then
-        icon = "🖥️"
-    end
+    local indent = 8 + depth * 16
     
-    local pathLabel = Instance.new("TextLabel", header)
-    pathLabel.Size = UDim2.new(1, -60, 1, 0)
-    pathLabel.Position = UDim2.new(0, 8, 0, 0)
-    pathLabel.BackgroundTransparency = 1
-    pathLabel.Text = icon .. " " .. path
-    pathLabel.TextColor3 = self.Theme.accent
-    pathLabel.TextSize = 12
-    pathLabel.Font = Enum.Font.GothamBold
-    pathLabel.TextXAlignment = Enum.TextXAlignment.Left
+    -- 展开/收起箭头
+    local arrow = Instance.new("TextLabel", item)
+    arrow.Size = UDim2.new(0, 16, 1, 0)
+    arrow.Position = UDim2.new(0, indent, 0, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Text = isExpanded and "▼" or "▶"
+    arrow.TextColor3 = self.Theme.textSecondary
+    arrow.TextSize = 10
+    arrow.Font = Enum.Font.GothamBold
+    arrow.TextXAlignment = Enum.TextXAlignment.Center
     
-    local countLabel = Instance.new("TextLabel", header)
-    countLabel.Size = UDim2.new(0, 40, 1, 0)
-    countLabel.Position = UDim2.new(1, -48, 0, 0)
+    -- 文件夹图标
+    local folderIcon = Instance.new("TextLabel", item)
+    folderIcon.Size = UDim2.new(0, 20, 1, 0)
+    folderIcon.Position = UDim2.new(0, indent + 16, 0, 0)
+    folderIcon.BackgroundTransparency = 1
+    folderIcon.Text = isExpanded and "📂" or "📁"
+    folderIcon.TextColor3 = self.Theme.accent
+    folderIcon.TextSize = 12
+    folderIcon.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- 文件夹名称
+    local nameLabel = Instance.new("TextLabel", item)
+    nameLabel.Size = UDim2.new(1, -indent - 80, 1, 0)
+    nameLabel.Position = UDim2.new(0, indent + 36, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = name
+    nameLabel.TextColor3 = self.Theme.text
+    nameLabel.TextSize = 12
+    nameLabel.Font = Enum.Font.GothamSemibold
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    -- 子项数量
+    local countLabel = Instance.new("TextLabel", item)
+    countLabel.Size = UDim2.new(0, 30, 1, 0)
+    countLabel.Position = UDim2.new(1, -35, 0, 0)
     countLabel.BackgroundTransparency = 1
-    countLabel.Text = tostring(count)
+    countLabel.Text = "(" .. childCount .. ")"
     countLabel.TextColor3 = self.Theme.textMuted
-    countLabel.TextSize = 11
+    countLabel.TextSize = 10
     countLabel.Font = Enum.Font.Gotham
     countLabel.TextXAlignment = Enum.TextXAlignment.Right
     
-    return header
+    -- 点击展开/收起
+    item.MouseButton1Click:Connect(function()
+        self.expandedPaths[pathKey] = not self.expandedPaths[pathKey]
+        self:refreshResourceList()
+    end)
+    
+    item.MouseEnter:Connect(function()
+        TweenService:Create(item, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.backgroundTertiary}):Play()
+    end)
+    
+    item.MouseLeave:Connect(function()
+        TweenService:Create(item, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.backgroundSecondary}):Play()
+    end)
+    
+    return item
+end
+
+-- 添加树形资源项
+function UI:addTreeResourceItem(name, className, path, onClick, depth)
+    local typeColor = self.Theme.textSecondary
+    if className:find("Remote") then
+        typeColor = Color3.fromRGB(255, 180, 100)
+    elseif className:find("Script") then
+        typeColor = Color3.fromRGB(100, 200, 255)
+    end
+    
+    local item = Instance.new("TextButton", self.resourceList)
+    item.Size = UDim2.new(1, -8, 0, 24)
+    item.BackgroundColor3 = self.Theme.backgroundSecondary
+    item.BorderSizePixel = 0
+    item.Text = ""
+    createCorner(item, 4)
+    
+    local indent = 8 + (depth + 1) * 16
+    
+    -- 类型图标
+    local icon = "📄"
+    if className:find("RemoteEvent") then
+        icon = "📤"
+    elseif className:find("RemoteFunction") then
+        icon = "📥"
+    elseif className:find("LocalScript") then
+        icon = "📜"
+    elseif className:find("ModuleScript") then
+        icon = "📦"
+    elseif className:find("Script") then
+        icon = "📝"
+    end
+    
+    local iconLabel = Instance.new("TextLabel", item)
+    iconLabel.Size = UDim2.new(0, 20, 1, 0)
+    iconLabel.Position = UDim2.new(0, indent, 0, 0)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Text = icon
+    iconLabel.TextSize = 12
+    iconLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- 资源名称
+    local nameLabel = Instance.new("TextLabel", item)
+    nameLabel.Size = UDim2.new(1, -indent - 80, 1, 0)
+    nameLabel.Position = UDim2.new(0, indent + 20, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = name
+    nameLabel.TextColor3 = self.Theme.text
+    nameLabel.TextSize = 11
+    nameLabel.Font = Enum.Font.Gotham
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    -- 类型标签
+    local classLabel = Instance.new("TextLabel", item)
+    classLabel.Size = UDim2.new(0, 80, 1, 0)
+    classLabel.Position = UDim2.new(1, -85, 0, 0)
+    classLabel.BackgroundTransparency = 1
+    classLabel.Text = className
+    classLabel.TextColor3 = typeColor
+    classLabel.TextSize = 9
+    classLabel.Font = Enum.Font.Gotham
+    classLabel.TextXAlignment = Enum.TextXAlignment.Right
+    classLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    item.MouseButton1Click:Connect(onClick)
+    
+    item.MouseEnter:Connect(function()
+        TweenService:Create(item, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.accent}):Play()
+    end)
+    
+    item.MouseLeave:Connect(function()
+        TweenService:Create(item, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.backgroundSecondary}):Play()
+    end)
+    
+    return item
 end
 
 -- 添加资源到分类
