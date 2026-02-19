@@ -760,7 +760,7 @@ function App:showHelp()
 🔧 代码块操作:
 • 复制 - 复制代码到剪贴板
 • 执行 - 直接运行代码
-• 保存 - 保存到执行器目录]], false)
+• 保存 - 保存到执行器目录]], modeNames[currentMode] or currentMode), false)
 end
 
 function App:sendToAI(query)
