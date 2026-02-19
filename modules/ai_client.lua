@@ -58,12 +58,15 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "External HTTP requests not supported"
     end
     
+    -- 获取当前使用的模型
+    local currentModel = options.model or provider.defaultModel
+    
     -- 获取或初始化上下文管理器
     local ctx = ContextManager and ContextManager.getInstance()
     
-    -- 设置当前模型
+    -- 设置当前模型（用于上下文限制）
     if ctx then
-        ctx:setModel(provider.defaultModel)
+        ctx:setModel(currentModel)
     end
     
     -- 准备消息（使用上下文管理器）

@@ -3,7 +3,7 @@
 
 local ContextManager = {}
 
--- 模型上下文限制配置
+-- 模型上下文限制配置（tokens）- 基于2025年官方文档
 local MODEL_LIMITS = {
     -- OpenAI
     ["gpt-4o"] = 128000,
@@ -12,15 +12,34 @@ local MODEL_LIMITS = {
     ["gpt-4"] = 8192,
     ["gpt-3.5-turbo"] = 16384,
     
-    -- DeepSeek
+    -- DeepSeek (API版本)
     ["deepseek-chat"] = 64000,
     ["deepseek-coder"] = 16000,
-    ["deepseek-reasoner"] = 64000,
+    ["deepseek-reasoner"] = 128000,
+    ["deepseek-v3"] = 128000,
+    ["deepseek-v3.2"] = 128000,
+    ["deepseek-r1"] = 128000,
     
-    -- GLM
+    -- GLM 智谱
     ["glm-4-plus"] = 128000,
     ["glm-4"] = 128000,
     ["glm-4-flash"] = 128000,
+    ["glm-4.6"] = 200000,
+    ["glm-4-long"] = 1000000,
+    
+    -- Qwen 通义千问
+    ["qwen3-coder-plus"] = 256000,
+    ["qwen3-max"] = 256000,
+    ["qwen3-max-preview"] = 256000,
+    ["qwen3-vl-plus"] = 128000,
+    ["qwen-plus"] = 128000,
+    
+    -- Kimi 月之暗面
+    ["kimi-k2"] = 200000,
+    ["kimi-k2-0905"] = 200000,
+    
+    -- iFlow
+    ["iflow-rome"] = 128000,
     
     -- 默认
     ["default"] = 32768
