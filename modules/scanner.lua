@@ -135,8 +135,9 @@ local function processInstance(instance, path, depth, results, seenInstances)
     return currentPath
 end
 
--- 扫描服务（使用队列，非递归，支持yield）
-local function scanServiceWithQueue(rootInstance, rootPath, results, counters, seenInstances, yieldCallback)
+-- 扫描服务（分批处理，使用coroutine让出执行权）
+local function scanServiceBatch(rootInstance, rootPath, results, counters, seenInstances, onBatch)
+    local batchSize = 100  -- 每批处理数量
     local queue = {{instance = rootInstance, path = rootPath, depth = 0}}
     local processed = 0
     
@@ -149,9 +150,12 @@ local function scanServiceWithQueue(rootInstance, rootPath, results, counters, s
             counters.total = counters.total + 1
             processed = processed + 1
             
-            -- 每处理500个对象yield一次
-            if processed % 500 == 0 and yieldCallback then
-                yieldCallback(counters.total)
+            -- 每批处理后让出执行权
+            if processed % batchSize == 0 then
+                if onBatch then
+                    onBatch(counters.total)
+                end
+                wait()  -- 让出执行权，防止卡死
             end
             
             -- 添加子对象到队列
@@ -256,15 +260,15 @@ function Scanner:scan(onProgress)
         end
     end
     
-    -- 扫描各个服务（使用队列方式）
+    -- 扫描各个服务（分批处理）
     for _, serviceInfo in ipairs(self.config.services) do
         local serviceName = serviceInfo.name
         local service = serviceInfo.service
         
         if service then
             table.insert(results.services, serviceName)
-            scanServiceWithQueue(service, serviceName, results, counters, seenInstances, function(count)
-                -- 每500个对象更新一次
+            scanServiceBatch(service, serviceName, results, counters, seenInstances, function(count)
+                -- 每批更新缓存
                 updateCacheAndNotify(serviceName)
             end)
             updateCacheAndNotify(serviceName)

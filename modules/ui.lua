@@ -1805,46 +1805,113 @@ function UI:refreshResourceList()
     self:updateVirtualList()
 end
 
--- 构建节点树
+-- 构建节点树（懒加载版本：只构建顶层服务节点）
 function UI:buildNodeTree(resources)
     local vl = self.virtualList
     vl.nodeCache = {}
+    vl.allResources = resources  -- 保存原始资源引用
     
-    -- 按服务分组
+    -- 只构建顶层服务节点（懒加载）
     local serviceNodes = {}
-    local otherNodes = {}
     
+    -- 统计每个服务的对象数量
+    local serviceCounts = {}
     for _, obj in ipairs(resources) do
         local path = obj.path or ""
         local serviceName = path:match("^([^.]+)")
-        
         if serviceName then
-            if not serviceNodes[serviceName] then
-                serviceNodes[serviceName] = {
-                    name = serviceName,
-                    className = "Service",
-                    isFolder = true,
-                    children = {},
-                    depth = 0,
-                    count = 0
-                }
-            end
-            self:addToNodeTree(serviceNodes[serviceName], obj, path, 1)
-            serviceNodes[serviceName].count = serviceNodes[serviceName].count + 1
+            serviceCounts[serviceName] = (serviceCounts[serviceName] or 0) + 1
         end
     end
     
-    -- 转为数组并排序
-    local sortedServices = {}
-    for name, node in pairs(serviceNodes) do
-        table.insert(sortedServices, node)
+    -- 创建服务节点
+    for serviceName, count in pairs(serviceCounts) do
+        table.insert(serviceNodes, {
+            name = serviceName,
+            className = "Service",
+            isFolder = true,
+            children = nil,  -- 懒加载：展开时才填充
+            childrenLoaded = false,
+            depth = 0,
+            count = count,
+            path = serviceName
+        })
     end
-    table.sort(sortedServices, function(a, b)
+    
+    -- 排序
+    table.sort(serviceNodes, function(a, b)
         if a.count ~= b.count then return a.count > b.count end
         return a.name < b.name
     end)
     
-    vl.nodeCache = sortedServices
+    vl.nodeCache = serviceNodes
+end
+
+-- 懒加载子节点
+function UI:loadNodeChildren(node)
+    if node.childrenLoaded then return end
+    
+    local vl = self.virtualList
+    local resources = vl.allResources
+    if not resources then return end
+    
+    node.children = {}
+    node.childrenLoaded = true
+    
+    -- 筛选属于该路径的对象
+    local nodePath = node.path
+    local childCounts = {}
+    local childObjects = {}
+    
+    for _, obj in ipairs(resources) do
+        local path = obj.path or ""
+        -- 检查是否属于该节点
+        if path:sub(1, #nodePath) == nodePath then
+            local remaining = path:sub(#nodePath + 2)  -- 去掉前缀和点
+            if remaining and remaining ~= "" then
+                local nextPart = remaining:match("^([^.]+)")
+                if nextPart then
+                    if not childCounts[nextPart] then
+                        childCounts[nextPart] = 0
+                        childObjects[nextPart] = {}
+                    end
+                    childCounts[nextPart] = childCounts[nextPart] + 1
+                    table.insert(childObjects[nextPart], obj)
+                end
+            end
+        end
+    end
+    
+    -- 创建子节点
+    for childName, count in pairs(childCounts) do
+        local isFolder = count > 1 or #childObjects[childName] > 1
+        
+        if isFolder then
+            node.children[childName] = {
+                name = childName,
+                className = "Folder",
+                isFolder = true,
+                children = nil,
+                childrenLoaded = false,
+                depth = node.depth + 1,
+                count = count,
+                path = nodePath .. "." .. childName,
+                parent = node
+            }
+        else
+            local obj = childObjects[childName][1]
+            node.children[childName] = {
+                name = childName,
+                className = obj.className,
+                isFolder = false,
+                instance = obj.instance,
+                path = obj.path,
+                depth = node.depth + 1,
+                parent = node,
+                objData = obj
+            }
+        end
+    end
 end
 
 -- 递归添加到节点树
@@ -1933,10 +2000,15 @@ function UI:flattenNodeTree()
                 depth = depth
             })
             
-            -- 如果展开且有子节点，递归
+            -- 如果展开，先懒加载子节点再递归
             local nodeKey = node.path or node.name
-            if node.isFolder and vl.expandedNodes[nodeKey] and node.children then
-                flatten(node.children, depth + 1)
+            if node.isFolder and vl.expandedNodes[nodeKey] then
+                if not node.childrenLoaded then
+                    self:loadNodeChildren(node)
+                end
+                if node.children then
+                    flatten(node.children, depth + 1)
+                end
             end
         end
     end
@@ -2077,21 +2149,20 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     icon.Position = UDim2.new(0, indent + 18, 0, 0)
     name.Position = UDim2.new(0, indent + 38, 0, 0)
     
-    -- 展开/折叠按钮
-    if node.isFolder and node.children and next(node.children) then
+    -- 展开/折叠按钮（使用count判断是否有子节点）
+    local hasChildren = node.isFolder and (node.count and node.count > 0 or (node.children and next(node.children)))
+    if hasChildren then
         local nodeKey = node.path or node.name
         local isExpanded = vl.expandedNodes[nodeKey]
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
-        -- 移除旧连接
-        for _, conn in ipairs(expandBtn:GetChildren()) do
-            if conn:IsA("RBXScriptConnection") then
-                conn:Disconnect()
-            end
-        end
-        
         expandBtn.MouseButton1Click:Connect(function()
+            -- 懒加载子节点
+            if not node.childrenLoaded then
+                self:loadNodeChildren(node)
+            end
+            
             vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
             self:flattenNodeTree()
             self:updateVirtualList()
