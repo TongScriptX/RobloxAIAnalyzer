@@ -5,6 +5,11 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
+-- 加载状态
+UI.isLoading = false
+UI.loadingConnection = nil
+UI.loadingDots = 0
+
 -- 主题配色
 UI.Theme = {
     background = Color3.fromRGB(25, 25, 30),
@@ -617,6 +622,47 @@ function UI:createChatView()
     self.sendBtn = sendBtn
     
     return chatFrame
+end
+
+-- 显示加载动画
+function UI:showLoading()
+    if self.isLoading then return end
+    self.isLoading = true
+    self.loadingDots = 0
+    
+    -- 禁用输入
+    self.inputBox.PlaceholderText = ""
+    self.sendBtn.Text = "..."
+    self.sendBtn.BackgroundColor3 = self.Theme.textMuted
+    
+    -- 启动动画
+    if self.loadingConnection then
+        self.loadingConnection:Disconnect()
+    end
+    
+    self.loadingConnection = RunService.Heartbeat:Connect(function()
+        if not self.isLoading then return end
+        
+        self.loadingDots = (self.loadingDots + 1) % 4
+        local dots = string.rep("●", self.loadingDots + 1) .. string.rep("○", 3 - self.loadingDots)
+        self.inputBox.PlaceholderText = "思考中 " .. dots
+    end)
+end
+
+-- 隐藏加载动画
+function UI:hideLoading()
+    self.isLoading = false
+    
+    -- 停止动画
+    if self.loadingConnection then
+        self.loadingConnection:Disconnect()
+        self.loadingConnection = nil
+    end
+    
+    -- 恢复输入
+    self.inputBox.PlaceholderText = "输入问题或指令..."
+    self.sendBtn.Text = ">"
+    self.sendBtn.BackgroundColor3 = self.Theme.accent
 end
 
 -- Markdown解析（主要处理代码块）

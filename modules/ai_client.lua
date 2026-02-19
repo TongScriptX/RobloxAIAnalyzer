@@ -98,8 +98,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
     local assistantMessage = choice.message
     
     -- 处理工具调用（循环处理多次工具调用）
-    local maxIterations = 5
+    local maxIterations = 10
     local iteration = 0
+    local lastToolResults = {}
     
     while assistantMessage.tool_calls and #assistantMessage.tool_calls > 0 and iteration < maxIterations do
         iteration = iteration + 1
@@ -117,6 +118,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
             end)
             toolArgs = ok and parsed or {}
             
+            print("[AI CLI] 执行工具: " .. toolName)
+            
             -- 执行工具
             local result
             if Tools then
@@ -130,6 +133,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
             
             -- 格式化结果
             local resultText = Tools and Tools:formatResult(result) or HttpService:JSONEncode(result)
+            lastToolResults[toolName] = result
+            
+            print("[AI CLI] 工具结果: " .. resultText:sub(1, 200))
             
             -- 添加工具结果到消息
             table.insert(messages, {
@@ -143,16 +149,40 @@ function AIClient:chat(userMessage, systemPrompt, options)
         local followUpBody = createRequestBody(provider, messages, options, tools)
         local followUpResponse = Http:jsonRequest(url, "POST", followUpBody, headers)
         
-        if followUpResponse.success and followUpResponse.data then
-            local followUpChoice = followUpResponse.data.choices and followUpResponse.data.choices[1]
-            if followUpChoice and followUpChoice.message then
-                assistantMessage = followUpChoice.message
-            else
-                break
+        if not followUpResponse.success then
+            warn("[AI CLI] Follow-up request failed: " .. tostring(followUpResponse.error))
+            -- 尝试生成基于工具结果的回复
+            local fallbackContent = self:generateFallbackContent(lastToolResults)
+            if fallbackContent then
+                return {
+                    content = fallbackContent,
+                    provider = provider.name
+                }
             end
-        else
-            break
+            return nil, "Tool execution completed but follow-up request failed"
         end
+        
+        if not followUpResponse.data then
+            warn("[AI CLI] No data in follow-up response")
+            return nil, "No data in follow-up response"
+        end
+        
+        local followUpChoice = followUpResponse.data.choices and followUpResponse.data.choices[1]
+        if not followUpChoice then
+            warn("[AI CLI] No choices in follow-up response")
+            return nil, "No choices in follow-up response"
+        end
+        
+        if not followUpChoice.message then
+            warn("[AI CLI] No message in follow-up choice")
+            return nil, "No message in follow-up response"
+        end
+        
+        assistantMessage = followUpChoice.message
+    end
+    
+    if iteration >= maxIterations then
+        warn("[AI CLI] Reached max tool call iterations")
     end
     
     -- 获取内容：优先使用 content，其次使用 reasoning_content
@@ -175,6 +205,60 @@ function AIClient:chat(userMessage, systemPrompt, options)
         usage = response.data.usage,
         provider = provider.name
     }
+end
+
+-- 生成备用内容（当工具调用后API请求失败时）
+function AIClient:generateFallbackContent(toolResults)
+    local parts = {}
+    
+    for toolName, result in pairs(toolResults) do
+        if result.error then
+            parts[#parts + 1] = string.format("**%s 结果:** %s", toolName, result.error)
+        elseif result.results then
+            parts[#parts + 1] = string.format("**%s 找到 %d 个结果:**", toolName, result.count)
+            for i, r in ipairs(result.results) do
+                if i > 10 then
+                    parts[#parts + 1] = "... 还有 " .. (result.count - 10) .. " 个"
+                    break
+                end
+                parts[#parts + 1] = string.format("- %s [%s] %s", r.name, r.type, r.path or "")
+            end
+        elseif result.source then
+            parts[#parts + 1] = string.format("**脚本 %s (%s):**", result.name, result.type)
+            parts[#parts + 1] = string.format("路径: %s", result.path)
+            parts[#parts + 1] = "```lua"
+            parts[#parts + 1] = result.source:sub(1, 2000)
+            if #result.source > 2000 then
+                parts[#parts + 1] = "... (已截断)"
+            end
+            parts[#parts + 1] = "```"
+        elseif result.example then
+            parts[#parts + 1] = string.format("**Remote: %s (%s)**", result.name, result.type)
+            parts[#parts + 1] = string.format("路径: %s", result.path)
+            parts[#parts + 1] = "```lua"
+            parts[#parts + 1] = result.example
+            parts[#parts + 1] = "```"
+        elseif result.remotes or result.scripts then
+            if result.remotes and #result.remotes > 0 then
+                parts[#parts + 1] = string.format("**Remotes (%d):**", result.remoteCount or #result.remotes)
+                for i, r in ipairs(result.remotes) do
+                    parts[#parts + 1] = string.format("- %s [%s]", r.name, r.type)
+                end
+            end
+            if result.scripts and #result.scripts > 0 then
+                parts[#parts + 1] = string.format("**Scripts (%d):**", result.scriptCount or #result.scripts)
+                for i, s in ipairs(result.scripts) do
+                    parts[#parts + 1] = string.format("- %s [%s]", s.name, s.type)
+                end
+            end
+        end
+    end
+    
+    if #parts > 0 then
+        return "工具执行结果:\n\n" .. table.concat(parts, "\n")
+    end
+    
+    return nil
 end
 
 -- 分析游戏资源

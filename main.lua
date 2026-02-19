@@ -584,22 +584,14 @@ function App:sendToAI(query)
     local Scanner = _G.AIAnalyzer.Scanner
     local context = Scanner and Scanner:toAIContext(50) or {}
     
-    ui:addMessage("⏳ 正在思考...", false)
+    -- 显示加载动画
+    ui:showLoading()
     
     spawn(function()
         local result, err = AIClient:analyzeResources(query, context)
         
-        -- 移除加载提示
-        local children = ui.messageArea:GetChildren()
-        for i = #children, 1, -1 do
-            if children[i]:IsA("Frame") then
-                local label = children[i]:FindFirstChildWhichIsA("TextLabel", true)
-                if label and label.Text and label.Text:find("正在思考") then
-                    children[i]:Destroy()
-                    break
-                end
-            end
-        end
+        -- 隐藏加载动画
+        ui:hideLoading()
         
         if result then
             ui:addMessage(result.content, false)
