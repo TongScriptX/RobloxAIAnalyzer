@@ -116,6 +116,24 @@ function AIClient:chat(userMessage, systemPrompt, options)
     
     local assistantMessage = choice.message
     
+    -- 累计所有请求的token使用量
+    local totalUsage = {
+        prompt_tokens = 0,
+        completion_tokens = 0,
+        total_tokens = 0
+    }
+    
+    -- 累加初始请求的usage
+    if response.data.usage then
+        totalUsage.prompt_tokens = totalUsage.prompt_tokens + (response.data.usage.prompt_tokens or 0)
+        totalUsage.completion_tokens = totalUsage.completion_tokens + (response.data.usage.completion_tokens or 0)
+        totalUsage.total_tokens = totalUsage.total_tokens + (response.data.usage.total_tokens or 0)
+        -- DeepSeek 特殊字段：缓存命中的token
+        if response.data.usage.prompt_cache_hit_tokens then
+            totalUsage.cache_hit_tokens = (totalUsage.cache_hit_tokens or 0) + response.data.usage.prompt_cache_hit_tokens
+        end
+    end
+    
     -- 处理工具调用（循环处理多次工具调用）
     local maxIterations = 10
     local iteration = 0
@@ -291,6 +309,16 @@ function AIClient:chat(userMessage, systemPrompt, options)
             return nil, "No message in follow-up response"
         end
         
+        -- 累加follow-up请求的usage
+        if followUpResponse.data.usage then
+            totalUsage.prompt_tokens = totalUsage.prompt_tokens + (followUpResponse.data.usage.prompt_tokens or 0)
+            totalUsage.completion_tokens = totalUsage.completion_tokens + (followUpResponse.data.usage.completion_tokens or 0)
+            totalUsage.total_tokens = totalUsage.total_tokens + (followUpResponse.data.usage.total_tokens or 0)
+            if followUpResponse.data.usage.prompt_cache_hit_tokens then
+                totalUsage.cache_hit_tokens = (totalUsage.cache_hit_tokens or 0) + followUpResponse.data.usage.prompt_cache_hit_tokens
+            end
+        end
+        
         assistantMessage = followUpChoice.message
     end
     
@@ -340,7 +368,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
         content = content,
         reasoning = reasoning,  -- 思考过程（可选）
         model = response.data.model,
-        usage = response.data.usage,
+        usage = totalUsage,  -- 使用累计的token统计
         provider = provider.name,
         contextStatus = ctx and ctx:getStatus()
     }

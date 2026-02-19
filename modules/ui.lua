@@ -286,7 +286,8 @@ function UI:createMainWindow()
         total = 0,
         prompt = 0,
         completion = 0,
-        requests = 0
+        requests = 0,
+        cacheHit = 0  -- 缓存命中token数
     }
     
     -- 设置拖动
@@ -1291,6 +1292,62 @@ function UI:createSettingsView()
     confirmBtn.TextXAlignment = Enum.TextXAlignment.Left
     createCorner(confirmBtn, 6)
     
+    -- ========== 运行模式选择 ==========
+    local runModeLabel = Instance.new("TextLabel", scrollFrame)
+    runModeLabel.Size = UDim2.new(1, -8, 0, 16)
+    runModeLabel.BackgroundTransparency = 1
+    runModeLabel.Text = "脚本运行模式"
+    runModeLabel.TextColor3 = self.Theme.text
+    runModeLabel.TextSize = 12
+    runModeLabel.Font = Enum.Font.GothamBold
+    runModeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local runModeFrame = Instance.new("Frame", scrollFrame)
+    runModeFrame.Name = "RunModeFrame"
+    runModeFrame.Size = UDim2.new(1, -8, 0, 36)
+    runModeFrame.BackgroundColor3 = self.Theme.backgroundTertiary
+    runModeFrame.BorderSizePixel = 0
+    createCorner(runModeFrame, 6)
+    
+    -- 获取当前运行模式
+    local Tools = _G.AIAnalyzer and _G.AIAnalyzer.Tools
+    local currentRunMode = Tools and Tools:getRunMode and Tools:getRunMode() or "default"
+    local modeLabels = {
+        smart = "智能",
+        default = "默认", 
+        yolo = "YOLO"
+    }
+    
+    local modeBtns = {}
+    local modes = {"smart", "default", "yolo"}
+    local modeWidth = 1 / #modes
+    
+    for i, mode in ipairs(modes) do
+        local modeBtn = Instance.new("TextButton", runModeFrame)
+        modeBtn.Name = mode .. "ModeBtn"
+        modeBtn.Size = UDim2.new(modeWidth, -4, 1, -8)
+        modeBtn.Position = UDim2.new((i - 1) * modeWidth, 4, 0, 4)
+        modeBtn.BackgroundColor3 = mode == currentRunMode and self.Theme.accent or self.Theme.backgroundSecondary
+        modeBtn.BorderSizePixel = 0
+        modeBtn.Text = modeLabels[mode]
+        modeBtn.TextColor3 = mode == currentRunMode and Color3.new(1, 1, 1) or self.Theme.text
+        modeBtn.TextSize = 11
+        modeBtn.Font = mode == currentRunMode and Enum.Font.GothamBold or Enum.Font.Gotham
+        createCorner(modeBtn, 4)
+        modeBtns[mode] = modeBtn
+    end
+    
+    -- 模式说明
+    local modeDescLabel = Instance.new("TextLabel", scrollFrame)
+    modeDescLabel.Name = "ModeDescLabel"
+    modeDescLabel.Size = UDim2.new(1, -8, 0, 32)
+    modeDescLabel.BackgroundTransparency = 1
+    modeDescLabel.Text = "智能: 低风险自动执行 | 默认: 每次询问 | YOLO: 从不询问"
+    modeDescLabel.TextColor3 = self.Theme.textSecondary
+    modeDescLabel.TextSize = 10
+    modeDescLabel.Font = Enum.Font.Gotham
+    modeDescLabel.TextWrapped = true
+    
     -- ========== Token 统计 ==========
     local tokenSection = Instance.new("TextLabel", scrollFrame)
     tokenSection.Size = UDim2.new(1, -8, 0, 20)
@@ -1382,6 +1439,7 @@ function UI:createSettingsView()
     self.testConnectionBtn = testBtn
     self.tokenStatsLabel = tokenStatsLabel
     self.resetTokenBtn = resetTokenBtn
+    self.runModeButtons = modeBtns  -- 运行模式按钮
     
     -- 初始化模型选择
     self:updateModelDropdown(currentProvider)
@@ -1474,6 +1532,24 @@ function UI:updateConfirmToggle(enabled)
     end
 end
 
+-- 更新运行模式显示
+function UI:updateRunModeDisplay(currentMode)
+    local modeLabels = {
+        smart = "智能",
+        default = "默认",
+        yolo = "YOLO"
+    }
+    
+    if self.runModeButtons then
+        for mode, btn in pairs(self.runModeButtons) do
+            local isSelected = mode == currentMode
+            btn.BackgroundColor3 = isSelected and self.Theme.accent or self.Theme.backgroundSecondary
+            btn.TextColor3 = isSelected and Color3.new(1, 1, 1) or self.Theme.text
+            btn.Font = isSelected and Enum.Font.GothamBold or Enum.Font.Gotham
+        end
+    end
+end
+
 -- 资源浏览器
 function UI:createResourceView()
     local resourceFrame = Instance.new("Frame", self.mainContent)
@@ -1497,10 +1573,9 @@ function UI:createResourceView()
     local tabs = {
         {id = "all", text = "全部", icon = "📁"},
         {id = "remotes", text = "Remote", icon = "📤"},
-        {id = "localscripts", text = "Local", icon = "📝"},
-        {id = "serverscripts", text = "Server", icon = "🖥️"},
-        {id = "modulescripts", text = "Module", icon = "📦"},
-        {id = "others", text = "其他", icon = "🔧"}
+        {id = "scripts", text = "脚本", icon = "📝"},
+        {id = "types", text = "按类型", icon = "🏷️"},
+        {id = "search", text = "搜索", icon = "🔍"}
     }
     
     self.resourceTabs = {}
@@ -1669,23 +1744,70 @@ function UI:refreshResourceList()
         end
     end
     
-    -- 获取当前分类的资源
-    local resources = self.allResources[self.currentResourceTab] or {}
+    local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
-    -- 过滤资源
-    local filteredResources = {}
-    for _, res in ipairs(resources) do
-        if searchQuery == "" or 
-           res.name:lower():find(searchQuery, 1, true) or 
-           res.path:lower():find(searchQuery, 1, true) or
-           res.className:lower():find(searchQuery, 1, true) then
-            table.insert(filteredResources, res)
+    -- 根据当前标签获取资源
+    local resources = {}
+    
+    if self.currentResourceTab == "types" then
+        -- 按类型显示
+        self:renderTypesView(Scanner)
+        return
+    elseif self.currentResourceTab == "search" then
+        -- 搜索模式
+        if searchQuery ~= "" and Scanner then
+            local result = Scanner:search(searchQuery, {limit = 200})
+            for _, r in ipairs(result.results) do
+                table.insert(resources, {
+                    name = r.name,
+                    className = r.className,
+                    path = r.path,
+                    onClick = function()
+                        if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
+                            self.resourceCallbacks.sendToAI(r)
+                        end
+                    end
+                })
+            end
         end
+    elseif self.currentResourceTab == "remotes" then
+        resources = self.allResources["remotes"] or {}
+    elseif self.currentResourceTab == "scripts" then
+        resources = self.allResources["scripts"] or {}
+    else
+        -- 全部
+        resources = self.allResources["all"] or {}
+    end
+    
+    -- 如果有搜索词，过滤
+    if searchQuery ~= "" and self.currentResourceTab ~= "search" then
+        local filtered = {}
+        for _, res in ipairs(resources) do
+            if res.name:lower():find(searchQuery, 1, true) or 
+               res.path:lower():find(searchQuery, 1, true) or
+               res.className:lower():find(searchQuery, 1, true) then
+                table.insert(filtered, res)
+            end
+        end
+        resources = filtered
+    end
+    
+    -- 限制显示数量
+    local maxDisplay = 500
+    if #resources > maxDisplay then
+        local limited = {}
+        for i = 1, maxDisplay do
+            table.insert(limited, resources[i])
+        end
+        resources = limited
+        
+        -- 显示提示
+        self:addResourceItem("... 还有 " .. (#resources - maxDisplay) .. " 个结果 ...", "", "", nil, false)
     end
     
     -- 构建树形结构
-    local tree = self:buildResourceTree(filteredResources)
+    local tree = self:buildResourceTree(resources)
     
     -- 存储展开状态
     if not self.expandedPaths then
@@ -1694,6 +1816,127 @@ function UI:refreshResourceList()
     
     -- 渲染树形结构
     self:renderTreeLevel(tree, 0)
+end
+
+-- 渲染按类型视图
+function UI:renderTypesView(Scanner)
+    if not Scanner or not Scanner.cache.typeIndex then
+        self:addResourceItem("请先扫描游戏资源", "", "", nil, false)
+        return
+    end
+    
+    local types = Scanner:getAllTypes()
+    local maxTypes = 50
+    
+    for i, t in ipairs(types) do
+        if i > maxTypes then break end
+        
+        local item = Instance.new("TextButton", self.resourceList)
+        item.Size = UDim2.new(1, -8, 0, 32)
+        item.BackgroundColor3 = self.Theme.backgroundSecondary
+        item.BorderSizePixel = 0
+        item.Text = ""
+        createCorner(item, 4)
+        
+        -- 类型图标
+        local icon = "📄"
+        if t.name:find("Remote") then icon = "📤"
+        elseif t.name:find("Script") then icon = "📝"
+        elseif t.name:find("Part") then icon = "🧱"
+        elseif t.name:find("Mesh") then icon = "🎨"
+        elseif t.name:find("Sound") then icon = "🔊"
+        elseif t.name:find("Particle") then icon = "✨"
+        elseif t.name:find("Light") then icon = "💡"
+        elseif t.name:find("Camera") then icon = "📷"
+        elseif t.name:find("GUI") or t.name:find("Gui") then icon = "🖥️"
+        elseif t.name:find("Animation") then icon = "🎬"
+        end
+        
+        local iconLabel = Instance.new("TextLabel", item)
+        iconLabel.Size = UDim2.new(0, 24, 1, 0)
+        iconLabel.Position = UDim2.new(0, 8, 0, 0)
+        iconLabel.BackgroundTransparency = 1
+        iconLabel.Text = icon
+        iconLabel.TextSize = 14
+        iconLabel.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local nameLabel = Instance.new("TextLabel", item)
+        nameLabel.Size = UDim2.new(1, -120, 1, 0)
+        nameLabel.Position = UDim2.new(0, 32, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = t.name
+        nameLabel.TextColor3 = self.Theme.text
+        nameLabel.TextSize = 12
+        nameLabel.Font = Enum.Font.Gotham
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local countLabel = Instance.new("TextLabel", item)
+        countLabel.Size = UDim2.new(0, 60, 1, 0)
+        countLabel.Position = UDim2.new(1, -68, 0, 0)
+        countLabel.BackgroundTransparency = 1
+        countLabel.Text = tostring(t.count)
+        countLabel.TextColor3 = self.Theme.textSecondary
+        countLabel.TextSize = 11
+        countLabel.Font = Enum.Font.Gotham
+        countLabel.TextXAlignment = Enum.TextXAlignment.Right
+        
+        -- 点击展开该类型
+        item.MouseButton1Click:Connect(function()
+            self:showTypeResources(t.name, Scanner)
+        end)
+    end
+end
+
+-- 显示某类型的资源列表
+function UI:showTypeResources(typeName, Scanner)
+    -- 清空当前列表
+    for _, child in pairs(self.resourceList:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child:Destroy()
+        end
+    end
+    
+    local resources = Scanner:filterByType(typeName)
+    local maxDisplay = 200
+    
+    -- 返回按钮
+    local backBtn = Instance.new("TextButton", self.resourceList)
+    backBtn.Size = UDim2.new(1, -8, 0, 28)
+    backBtn.BackgroundColor3 = self.Theme.accent
+    backBtn.BorderSizePixel = 0
+    backBtn.Text = "← 返回类型列表"
+    backBtn.TextColor3 = Color3.new(1, 1, 1)
+    backBtn.TextSize = 12
+    backBtn.Font = Enum.Font.GothamBold
+    createCorner(backBtn, 4)
+    backBtn.MouseButton1Click:Connect(function()
+        self.currentResourceTab = "types"
+        self:refreshResourceList()
+    end)
+    
+    -- 标题
+    local title = Instance.new("TextLabel", self.resourceList)
+    title.Size = UDim2.new(1, -8, 0, 24)
+    title.BackgroundTransparency = 1
+    title.Text = typeName .. " (" .. #resources .. " 个)"
+    title.TextColor3 = self.Theme.text
+    title.TextSize = 12
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- 资源列表
+    for i, res in ipairs(resources) do
+        if i > maxDisplay then
+            self:addResourceItem("... 还有 " .. (#resources - maxDisplay) .. " 个", "", "", nil, false)
+            break
+        end
+        
+        self:addTreeResourceItem(res.name, res.className, res.path, function()
+            if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
+                self.resourceCallbacks.sendToAI(res)
+            end
+        end, 0)
+    end
 end
 
 -- 渲染树形层级
@@ -2270,6 +2513,10 @@ function UI:updateTokenDisplay(usage)
         self.tokenStats.prompt = self.tokenStats.prompt + (usage.prompt_tokens or 0)
         self.tokenStats.completion = self.tokenStats.completion + (usage.completion_tokens or 0)
         self.tokenStats.requests = self.tokenStats.requests + 1
+        -- 缓存命中token（DeepSeek特有）
+        if usage.cache_hit_tokens then
+            self.tokenStats.cacheHit = (self.tokenStats.cacheHit or 0) + usage.cache_hit_tokens
+        end
     end
     
     -- 更新标题栏显示
@@ -2288,6 +2535,7 @@ function UI:updateTokenDisplay(usage)
     -- 更新设置页面统计
     if self.tokenStatsLabel then
         local function formatNum(n)
+            if not n then return "0" end
             if n >= 1000000 then
                 return string.format("%.2fM", n / 1000000)
             elseif n >= 1000 then
@@ -2296,14 +2544,21 @@ function UI:updateTokenDisplay(usage)
                 return tostring(n)
             end
         end
-        self.tokenStatsLabel.Text = string.format(
+        
+        local statsText = string.format(
             "总消耗: %s tokens\n请求次数: %d\n输入: %s | 输出: %s",
             formatNum(self.tokenStats.total),
             self.tokenStats.requests,
             formatNum(self.tokenStats.prompt),
             formatNum(self.tokenStats.completion)
         )
-    end
+        
+        -- 如果有缓存命中，显示缓存节省
+        if self.tokenStats.cacheHit and self.tokenStats.cacheHit > 0 then
+            statsText = statsText .. "\n缓存命中: " .. formatNum(self.tokenStats.cacheHit)
+        end
+        
+        self.tokenStatsLabel.Text = statsText
 end
 
 -- 获取Token统计
@@ -2317,7 +2572,8 @@ function UI:resetTokenStats()
         total = 0,
         prompt = 0,
         completion = 0,
-        requests = 0
+        requests = 0,
+        cacheHit = 0
     }
     self:updateTokenDisplay()
 end
@@ -2359,6 +2615,481 @@ end
 function UI:destroy()
     if self.screenGui then
         self.screenGui:Destroy()
+    end
+end
+
+-- ========== 文件浏览器功能 ==========
+
+-- 创建文件浏览器弹窗
+function UI:createFileBrowser()
+    if self.fileBrowserFrame then
+        self.fileBrowserFrame.Visible = true
+        return
+    end
+    
+    local browserFrame = Instance.new("Frame", self.screenGui)
+    browserFrame.Name = "FileBrowser"
+    browserFrame.Size = UDim2.new(0, 400, 0, 350)
+    browserFrame.Position = UDim2.new(0.5, -200, 0.5, -175)
+    browserFrame.BackgroundColor3 = self.Theme.background
+    browserFrame.BorderSizePixel = 0
+    browserFrame.Visible = false
+    browserFrame.ZIndex = 100
+    createCorner(browserFrame, 12)
+    
+    -- 标题栏
+    local titleBar = Instance.new("Frame", browserFrame)
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 36)
+    titleBar.BackgroundColor3 = self.Theme.backgroundSecondary
+    titleBar.BorderSizePixel = 0
+    createCorner(titleBar, 12)
+    
+    local title = Instance.new("TextLabel", titleBar)
+    title.Size = UDim2.new(1, -60, 1, 0)
+    title.Position = UDim2.new(0, 12, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "📁 文件浏览器"
+    title.TextColor3 = self.Theme.text
+    title.TextSize = 14
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local closeBtn = Instance.new("TextButton", titleBar)
+    closeBtn.Size = UDim2.new(0, 28, 0, 28)
+    closeBtn.Position = UDim2.new(1, -32, 0.5, -14)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.new(1, 1, 1)
+    closeBtn.TextSize = 14
+    closeBtn.Font = Enum.Font.GothamBold
+    createCorner(closeBtn, 6)
+    closeBtn.ZIndex = 101
+    closeBtn.MouseButton1Click:Connect(function()
+        self:hideFileBrowser()
+    end)
+    
+    -- 路径显示
+    local pathBar = Instance.new("Frame", browserFrame)
+    pathBar.Name = "PathBar"
+    pathBar.Size = UDim2.new(1, -16, 0, 28)
+    pathBar.Position = UDim2.new(0, 8, 0, 42)
+    pathBar.BackgroundColor3 = self.Theme.backgroundTertiary
+    pathBar.BorderSizePixel = 0
+    createCorner(pathBar, 6)
+    
+    local pathLabel = Instance.new("TextLabel", pathBar)
+    pathLabel.Name = "PathLabel"
+    pathLabel.Size = UDim2.new(1, -12, 1, 0)
+    pathLabel.Position = UDim2.new(0, 6, 0, 0)
+    pathLabel.BackgroundTransparency = 1
+    pathLabel.Text = "📂 workspace"
+    pathLabel.TextColor3 = self.Theme.textSecondary
+    pathLabel.TextSize = 11
+    pathLabel.Font = Enum.Font.Gotham
+    pathLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- 文件列表
+    local fileList = Instance.new("ScrollingFrame", browserFrame)
+    fileList.Name = "FileList"
+    fileList.Size = UDim2.new(1, -16, 1, -140)
+    fileList.Position = UDim2.new(0, 8, 0, 76)
+    fileList.BackgroundColor3 = self.Theme.backgroundSecondary
+    fileList.BorderSizePixel = 0
+    fileList.ScrollBarThickness = 5
+    fileList.ScrollBarImageColor3 = self.Theme.accent
+    fileList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    fileList.CanvasSize = UDim2.new(0, 0, 0, 0)
+    createCorner(fileList, 8)
+    
+    local listLayout = Instance.new("UIListLayout", fileList)
+    listLayout.Padding = UDim.new(0, 2)
+    
+    -- 编辑器区域（初始隐藏）
+    local editorFrame = Instance.new("Frame", browserFrame)
+    editorFrame.Name = "EditorFrame"
+    editorFrame.Size = UDim2.new(1, -16, 0, 0)
+    editorFrame.Position = UDim2.new(0, 8, 1, -8)
+    editorFrame.BackgroundColor3 = self.Theme.backgroundTertiary
+    editorFrame.BorderSizePixel = 0
+    editorFrame.Visible = false
+    createCorner(editorFrame, 8)
+    
+    -- 文件名输入
+    local fileNameInput = Instance.new("TextBox", browserFrame)
+    fileNameInput.Name = "FileNameInput"
+    fileNameInput.Size = UDim2.new(1, -16, 0, 24)
+    fileNameInput.Position = UDim2.new(0, 8, 1, -52)
+    fileNameInput.BackgroundColor3 = self.Theme.backgroundTertiary
+    fileNameInput.BorderSizePixel = 0
+    fileNameInput.PlaceholderText = "文件名..."
+    fileNameInput.PlaceholderColor3 = self.Theme.textMuted
+    fileNameInput.Text = ""
+    fileNameInput.TextColor3 = self.Theme.text
+    fileNameInput.TextSize = 11
+    fileNameInput.Font = Enum.Font.Gotham
+    fileNameInput.TextXAlignment = Enum.TextXAlignment.Left
+    createCorner(fileNameInput, 6)
+    fileNameInput.Visible = false
+    
+    -- 操作按钮
+    local btnFrame = Instance.new("Frame", browserFrame)
+    btnFrame.Size = UDim2.new(1, -16, 0, 28)
+    btnFrame.Position = UDim2.new(0, 8, 1, -36)
+    btnFrame.BackgroundTransparency = 1
+    
+    local newFileBtn = Instance.new("TextButton", btnFrame)
+    newFileBtn.Size = UDim2.new(0.25, -4, 1, 0)
+    newFileBtn.BackgroundColor3 = self.Theme.accent
+    newFileBtn.BorderSizePixel = 0
+    newFileBtn.Text = "新建"
+    newFileBtn.TextColor3 = Color3.new(1, 1, 1)
+    newFileBtn.TextSize = 11
+    newFileBtn.Font = Enum.Font.GothamBold
+    createCorner(newFileBtn, 6)
+    
+    local saveFileBtn = Instance.new("TextButton", btnFrame)
+    saveFileBtn.Size = UDim2.new(0.25, -4, 1, 0)
+    saveFileBtn.Position = UDim2.new(0.25, 2, 0, 0)
+    saveFileBtn.BackgroundColor3 = self.Theme.success
+    saveFileBtn.BorderSizePixel = 0
+    saveFileBtn.Text = "保存"
+    saveFileBtn.TextColor3 = Color3.new(1, 1, 1)
+    saveFileBtn.TextSize = 11
+    saveFileBtn.Font = Enum.Font.GothamBold
+    createCorner(saveFileBtn, 6)
+    
+    local runFileBtn = Instance.new("TextButton", btnFrame)
+    runFileBtn.Size = UDim2.new(0.25, -4, 1, 0)
+    runFileBtn.Position = UDim2.new(0.5, 4, 0, 0)
+    runFileBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
+    runFileBtn.BorderSizePixel = 0
+    runFileBtn.Text = "运行"
+    runFileBtn.TextColor3 = Color3.new(1, 1, 1)
+    runFileBtn.TextSize = 11
+    runFileBtn.Font = Enum.Font.GothamBold
+    createCorner(runFileBtn, 6)
+    
+    local cancelBtn = Instance.new("TextButton", btnFrame)
+    cancelBtn.Size = UDim2.new(0.25, -4, 1, 0)
+    cancelBtn.Position = UDim2.new(0.75, 6, 0, 0)
+    cancelBtn.BackgroundColor3 = self.Theme.textSecondary
+    cancelBtn.BorderSizePixel = 0
+    cancelBtn.Text = "取消"
+    cancelBtn.TextColor3 = Color3.new(1, 1, 1)
+    cancelBtn.TextSize = 11
+    cancelBtn.Font = Enum.Font.GothamBold
+    createCorner(cancelBtn, 6)
+    
+    -- 保存引用
+    self.fileBrowserFrame = browserFrame
+    self.fileBrowserPathLabel = pathLabel
+    self.fileBrowserList = fileList
+    self.fileBrowserEditor = editorFrame
+    self.fileNameInput = fileNameInput
+    self.fileBrowserButtons = {
+        newFile = newFileBtn,
+        save = saveFileBtn,
+        run = runFileBtn,
+        cancel = cancelBtn
+    }
+    self.fileBrowserCurrentPath = "workspace"
+    self.fileBrowserSelectedFile = nil
+    
+    -- 绑定事件
+    self:bindFileBrowserEvents()
+end
+
+-- 绑定文件浏览器事件
+function UI:bindFileBrowserEvents()
+    local btns = self.fileBrowserButtons
+    
+    btns.newFile.MouseButton1Click:Connect(function()
+        self:createNewFile()
+    end)
+    
+    btns.save.MouseButton1Click:Connect(function()
+        self:saveCurrentFile()
+    end)
+    
+    btns.run.MouseButton1Click:Connect(function()
+        self:runCurrentFile()
+    end)
+    
+    btns.cancel.MouseButton1Click:Connect(function()
+        self:hideFileBrowser()
+    end)
+end
+
+-- 显示文件浏览器
+function UI:showFileBrowser(initialPath)
+    self:createFileBrowser()
+    self.fileBrowserFrame.Visible = true
+    self.fileBrowserEditor.Visible = false
+    self.fileNameInput.Visible = false
+    self.fileBrowserFrame.Size = UDim2.new(0, 400, 0, 350)
+    self.fileBrowserSelectedFile = nil
+    self:navigateToFolder(initialPath or "workspace")
+end
+
+-- 隐藏文件浏览器
+function UI:hideFileBrowser()
+    if self.fileBrowserFrame then
+        self.fileBrowserFrame.Visible = false
+    end
+end
+
+-- 导航到文件夹
+function UI:navigateToFolder(path)
+    local exec = _G.AIAnalyzer and _G.AIAnalyzer.Executor
+    if not exec or not exec.listfiles then
+        self:addMessage("⚠️ 当前执行器不支持文件浏览", false)
+        return
+    end
+    
+    self.fileBrowserCurrentPath = path
+    self.fileBrowserPathLabel.Text = "📂 " .. path
+    
+    -- 清空列表
+    for _, child in ipairs(self.fileBrowserList:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    
+    -- 返回上一级
+    if path ~= "workspace" then
+        local parentPath = path:match("^(.+)/[^/]+$") or "workspace"
+        self:addFileBrowserItem("📁 ..", "folder", parentPath, true)
+    end
+    
+    -- 获取文件列表
+    local success, files = pcall(exec.listfiles, path)
+    if not success or not files then
+        self:addFileBrowserItem("❌ 无法读取目录", "error", nil, false)
+        return
+    end
+    
+    -- 排序：文件夹在前
+    local folders = {}
+    local regularFiles = {}
+    
+    for _, file in ipairs(files) do
+        local name = file:match("[^/]+$") or file
+        local isFolder = exec.isfolder and exec.isfolder(file)
+        
+        if isFolder then
+            table.insert(folders, {name = name, path = file, isFolder = true})
+        else
+            table.insert(regularFiles, {name = name, path = file, isFolder = false})
+        end
+    end
+    
+    -- 显示文件夹
+    for _, item in ipairs(folders) do
+        self:addFileBrowserItem("📁 " .. item.name, "folder", item.path, false)
+    end
+    
+    -- 显示文件
+    for _, item in ipairs(regularFiles) do
+        local ext = item.name:match("%.(%w+)$") or ""
+        local icon = "📄"
+        if ext == "lua" then icon = "📝"
+        elseif ext == "json" then icon = "📋"
+        elseif ext == "txt" then icon = "📃"
+        end
+        self:addFileBrowserItem(icon .. " " .. item.name, "file", item.path, false)
+    end
+    
+    if #folders == 0 and #regularFiles == 0 then
+        self:addFileBrowserItem("📂 空目录", "empty", nil, false)
+    end
+end
+
+-- 添加文件浏览器项目
+function UI:addFileBrowserItem(text, itemType, path, isBack)
+    local item = Instance.new("TextButton", self.fileBrowserList)
+    item.Size = UDim2.new(1, -4, 0, 28)
+    item.BackgroundColor3 = self.Theme.backgroundTertiary
+    item.BorderSizePixel = 0
+    item.Text = "  " .. text
+    item.TextColor3 = self.Theme.text
+    item.TextSize = 12
+    item.Font = Enum.Font.Gotham
+    item.TextXAlignment = Enum.TextXAlignment.Left
+    createCorner(item, 4)
+    
+    item.MouseButton1Click:Connect(function()
+        if itemType == "folder" then
+            self:navigateToFolder(path)
+        elseif itemType == "file" then
+            self:selectFile(path)
+        end
+    end)
+end
+
+-- 选择文件
+function UI:selectFile(path)
+    local exec = _G.AIAnalyzer and _G.AIAnalyzer.Executor
+    if not exec or not exec.readfile then return end
+    
+    local fileName = path:match("[^/]+$") or path
+    self.fileBrowserSelectedFile = path
+    self.fileNameInput.Text = fileName
+    self.fileNameInput.Visible = true
+    
+    -- 读取文件内容
+    local success, content = pcall(exec.readfile, path)
+    if success and content then
+        -- 显示编辑器
+        self:showFileEditor(content)
+    else
+        self:addMessage("❌ 无法读取文件: " .. tostring(content), false)
+    end
+end
+
+-- 显示文件编辑器
+function UI:showFileEditor(content)
+    -- 调整浏览器大小
+    self.fileBrowserFrame.Size = UDim2.new(0, 500, 0, 500)
+    self.fileBrowserFrame.Position = UDim2.new(0.5, -250, 0.5, -250)
+    
+    -- 清除旧编辑器
+    for _, child in ipairs(self.fileBrowserEditor:GetChildren()) do
+        child:Destroy()
+    end
+    
+    -- 创建编辑器
+    local editor = Instance.new("TextBox", self.fileBrowserEditor)
+    editor.Name = "CodeEditor"
+    editor.Size = UDim2.new(1, -8, 1, -8)
+    editor.Position = UDim2.new(0, 4, 0, 4)
+    editor.BackgroundTransparency = 1
+    editor.Text = content
+    editor.TextColor3 = self.Theme.text
+    editor.TextSize = 11
+    editor.Font = Enum.Font.Code
+    editor.TextXAlignment = Enum.TextXAlignment.Left
+    editor.TextYAlignment = Enum.TextYAlignment.Top
+    editor.TextWrapped = false
+    editor.MultiLine = true
+    editor.ClearTextOnFocus = false
+    
+    self.fileBrowserEditor.Visible = true
+    
+    -- 调整列表大小
+    self.fileBrowserList.Size = UDim2.new(1, -16, 0, 200)
+end
+
+-- 创建新文件
+function UI:createNewFile()
+    local fileName = self.fileNameInput.Text
+    if fileName == "" then
+        fileName = "new_script.lua"
+        self.fileNameInput.Text = fileName
+    end
+    
+    self.fileBrowserSelectedFile = self.fileBrowserCurrentPath .. "/" .. fileName
+    
+    -- 显示空编辑器
+    self:showFileEditor("-- 新文件\n")
+end
+
+-- 保存当前文件
+function UI:saveCurrentFile()
+    local exec = _G.AIAnalyzer and _G.AIAnalyzer.Executor
+    if not exec or not exec.writefile then
+        self:addMessage("❌ 当前执行器不支持写入文件", false)
+        return
+    end
+    
+    local filePath = self.fileBrowserSelectedFile
+    if not filePath then
+        self:addMessage("⚠️ 请先选择或创建文件", false)
+        return
+    end
+    
+    -- 获取编辑器内容
+    local editor = self.fileBrowserEditor:FindFirstChild("CodeEditor")
+    if not editor then return end
+    
+    local content = editor.Text
+    
+    -- 保存文件
+    local success, err = pcall(exec.writefile, filePath, content)
+    if success then
+        self:addMessage("✅ 文件已保存: " .. filePath, false)
+    else
+        self:addMessage("❌ 保存失败: " .. tostring(err), false)
+    end
+end
+
+-- 运行当前文件
+function UI:runCurrentFile()
+    local exec = _G.AIAnalyzer and _G.AIAnalyzer.Executor
+    local Tools = _G.AIAnalyzer and _G.AIAnalyzer.Tools
+    
+    -- 获取编辑器内容
+    local editor = self.fileBrowserEditor:FindFirstChild("CodeEditor")
+    if not editor then return end
+    
+    local code = editor.Text
+    local filePath = self.fileBrowserSelectedFile or "未命名"
+    
+    -- 检查运行模式
+    local runMode = Tools and Tools:getRunMode() or "default"
+    local needConfirm = true
+    
+    if runMode == "yolo" then
+        needConfirm = false
+    elseif runMode == "smart" and Tools then
+        local risk = Tools:analyzeRisk(code)
+        needConfirm = risk.level ~= "low"
+    end
+    
+    if needConfirm then
+        -- 显示确认对话框
+        self:addMessage(string.format([[
+⚠️ **需要确认运行脚本**
+📄 文件: %s
+📊 运行模式: %s
+
+请确认是否执行此脚本]], filePath, runMode), false)
+        
+        -- 设置确认状态
+        self.pendingFileExecution = code
+        self:showConfirmationPrompt("执行文件: " .. filePath, code:sub(1, 300))
+    else
+        -- 直接执行
+        self:executeFileCode(code, filePath)
+    end
+end
+
+-- 执行文件代码
+function UI:executeFileCode(code, filePath)
+    local fn, err = loadstring(code)
+    if not fn then
+        self:addMessage("❌ 编译失败: " .. tostring(err), false)
+        return
+    end
+    
+    local ok, result = pcall(fn)
+    if ok then
+        self:addMessage("✅ 脚本执行成功: " .. filePath, false)
+    else
+        self:addMessage("❌ 执行错误: " .. tostring(result), false)
+    end
+end
+
+-- 检查输入框是否触发文件浏览
+function UI:checkFileBrowserTrigger()
+    local text = self.inputBox.Text
+    -- 检测 @ 字符
+    if text:sub(-1) == "@" then
+        self:showFileBrowser()
+        -- 移除 @ 字符
+        self.inputBox.Text = text:sub(1, -2)
     end
 end
 

@@ -111,6 +111,26 @@ local function detectExecutor()
         info.readfile = readfile
     end
     
+    -- listfiles 功能
+    if listfiles then
+        info.listfiles = listfiles
+        info.canListFiles = true
+    elseif syn and syn.listfiles then
+        info.listfiles = syn.listfiles
+        info.canListFiles = true
+    end
+    
+    -- isfile / isfolder 功能
+    if isfile then info.isfile = isfile end
+    if isfolder then info.isfolder = isfolder end
+    if syn and syn.isfile then info.isfile = syn.isfile end
+    if syn and syn.isfolder then info.isfolder = syn.isfolder end
+    
+    -- makefolder / delfolder / delfile 功能
+    if makefolder then info.makefolder = makefolder end
+    if delfolder then info.delfolder = delfolder end
+    if delfile then info.delfile = delfile end
+    
     if loadstring and getgenv then
         info.canExecute = true
     end
@@ -373,7 +393,6 @@ function App:setupUI()
     
     ui:createSidebarButton("设置", "⚙️", function()
         ui:showView("settings")
-        self:loadSettings()
     end)
     
     ui:createChatView()
@@ -382,6 +401,9 @@ function App:setupUI()
     
     ui:showView("chat")
     self:updateConnectionStatus()
+    
+    -- 初始化设置页面数据
+    self:loadSettings()
 end
 
 function App:loadSettings()
@@ -416,6 +438,11 @@ function App:bindEvents()
         if enter then self:sendMessage() end
     end)
     
+    -- 监听输入框文本变化，检测@触发文件浏览器
+    ui.inputBox:GetPropertyChangedSignal("Text"):Connect(function()
+        ui:checkFileBrowserTrigger()
+    end)
+    
     ui.saveSettingsBtn.MouseButton1Click:Connect(function()
         self:saveSettings()
     end)
@@ -444,6 +471,20 @@ function App:bindEvents()
             ui:updateConfirmToggle(cfg.Settings.confirmBeforeExecute)
         end
     end)
+    
+    -- 运行模式按钮事件
+    local Tools = _G.AIAnalyzer.Tools
+    if ui.runModeButtons then
+        for mode, btn in pairs(ui.runModeButtons) do
+            btn.MouseButton1Click:Connect(function()
+                if Tools and Tools.setRunMode then
+                    Tools:setRunMode(mode)
+                    ui:updateRunModeDisplay(mode)
+                    ui:addMessage("✅ 运行模式已切换为: " .. mode, false)
+                end
+            end)
+        end
+    end
     
     ui.scanBtn.MouseButton1Click:Connect(function()
         self:scanResources()
@@ -664,6 +705,19 @@ function App:confirmScriptExecution()
     local ui = _G.AIAnalyzer.UI
     local Tools = _G.AIAnalyzer.Tools
     
+    -- 检查是否是文件浏览器的脚本执行
+    if ui.pendingFileExecution then
+        local code = ui.pendingFileExecution
+        local filePath = ui.fileBrowserSelectedFile or "未命名"
+        ui.pendingFileExecution = nil
+        self.pendingConfirmation = nil
+        ui:hideConfirmationPrompt()
+        
+        ui:addMessage("✅ 已确认，正在执行脚本...", false)
+        ui:executeFileCode(code, filePath)
+        return
+    end
+    
     if not self.pendingConfirmation then
         ui:addMessage("⚠️ 没有待确认的脚本", false)
         return
@@ -707,6 +761,11 @@ end
 function App:cancelScriptExecution()
     local ui = _G.AIAnalyzer.UI
     local Tools = _G.AIAnalyzer.Tools
+    
+    -- 清除文件浏览器的待执行脚本
+    if ui.pendingFileExecution then
+        ui.pendingFileExecution = nil
+    end
     
     if not self.pendingConfirmation then
         ui:addMessage("⚠️ 没有待确认的脚本", false)
