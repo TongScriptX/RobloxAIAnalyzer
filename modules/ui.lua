@@ -2083,6 +2083,7 @@ function UI:createVirtualEntry(index)
     entry.Size = UDim2.new(1, 0, 0, vl.entryHeight)
     entry.BackgroundColor3 = self.Theme.backgroundSecondary
     entry.BorderSizePixel = 0
+    entry:SetAttribute("entryIndex", index)
     
     -- 展开按钮
     local expandBtn = Instance.new("TextButton", entry)
@@ -2158,13 +2159,22 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         return
     end
     
-    -- 断开旧的事件连接
-    if entry.connections then
-        for _, conn in ipairs(entry.connections) do
+    -- 断开旧的事件连接（使用entry的Attribute存储索引）
+    local entryIndex = entry:GetAttribute("entryIndex")
+    if entryIndex and self.entryConnections and self.entryConnections[entryIndex] then
+        for _, conn in ipairs(self.entryConnections[entryIndex]) do
             if conn then conn:Disconnect() end
         end
+        self.entryConnections[entryIndex] = {}
     end
-    entry.connections = {}
+    
+    -- 初始化连接存储
+    if not self.entryConnections then
+        self.entryConnections = {}
+    end
+    if entryIndex then
+        self.entryConnections[entryIndex] = {}
+    end
     
     -- 缩进
     local indent = depth * 16
@@ -2190,7 +2200,9 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             self:flattenNodeTree()
             self:updateVirtualList()
         end)
-        table.insert(entry.connections, conn)
+        if entryIndex and self.entryConnections[entryIndex] then
+            table.insert(self.entryConnections[entryIndex], conn)
+        end
     else
         expandBtn.Visible = false
     end
@@ -2228,7 +2240,9 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             end
         end
     end)
-    table.insert(entry.connections, conn2)
+    if entryIndex and self.entryConnections[entryIndex] then
+        table.insert(self.entryConnections[entryIndex], conn2)
+    end
     
     -- 悬停效果
     entry.MouseEnter:Connect(function()
