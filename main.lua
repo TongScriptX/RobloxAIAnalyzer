@@ -169,14 +169,15 @@ local function saveScript(name, content)
         return false, "不支持写入文件"
     end
     
-    local dir = cfg and cfg.Settings and cfg.Settings.scriptDir or "workspace"
+    local dir = cfg and cfg.Settings and cfg.Settings.scriptDir or "AICli"
     local filename
     
-    if dir == "workspace" or dir == "" then
-        filename = name:gsub("[^%w_%.%-]", "_") .. ".lua"
-    else
-        filename = dir .. "/" .. name:gsub("[^%w_%.%-]", "_") .. ".lua"
+    if dir == "" then
+        dir = "AICli"
     end
+    
+    -- 所有文件都保存到 AICli 目录
+    filename = "AICli/" .. name:gsub("[^%w_%.%-]", "_") .. ".lua"
     
     if not filename:match("%.lua$") then
         filename = filename .. ".lua"
@@ -994,7 +995,7 @@ function App:saveSettings()
         Config:setApiKey(currentProvider, apiKey)
     end
     
-    Config.Settings.scriptDir = scriptDir ~= "" and scriptDir or "workspace"
+    Config.Settings.scriptDir = scriptDir ~= "" and scriptDir or "AICli"
     Config:save()
     
     ui:addMessage("✅ 设置已保存", false)

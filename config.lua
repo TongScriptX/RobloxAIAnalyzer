@@ -53,16 +53,16 @@ Config.Providers = {
 -- 执行器相关
 Config.ExecutorConfig = {
     detectedExecutor = "Unknown",
-    scriptDir = "",
+    scriptDir = "AICli",
     canWriteFile = false,
     knownDirs = {
-        ["Synapse X"] = "workspace",
-        ["Script-Ware"] = "workspace",
-        ["KRNL"] = "workspace",
-        ["Fluxus"] = "workspace",
-        ["Electron"] = "workspace",
-        ["Delta"] = "workspace",
-        ["Codex"] = "workspace"
+        ["Synapse X"] = "AICli",
+        ["Script-Ware"] = "AICli",
+        ["KRNL"] = "AICli",
+        ["Fluxus"] = "AICli",
+        ["Electron"] = "AICli",
+        ["Delta"] = "AICli",
+        ["Codex"] = "AICli"
     }
 }
 
@@ -72,7 +72,7 @@ Config.Settings = {
     maxTokens = 4096,
     temperature = 0.7,
     confirmBeforeExecute = true,
-    scriptDir = "workspace",
+    scriptDir = "AICli",
     runMode = "default"  -- smart(智能), default(默认询问), yolo(从不询问)
 }
 
