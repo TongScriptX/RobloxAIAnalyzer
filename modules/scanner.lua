@@ -61,85 +61,67 @@ local function createObjectInfo(instance, path, depth)
     }
 end
 
--- 获取关键属性
-local function getProperties(instance)
+-- 获取关键属性（仅对重要类型）
+local function getProperties(instance, className)
+    -- 普通对象不获取属性，大幅减少pcall开销
+    if not Scanner.config.importantTypes[className] then
+        return {}
+    end
+    
     local props = {}
     
-    pcall(function()
-        if instance.Value ~= nil then
-            props.Value = tostring(instance.Value)
-        end
-    end)
-    
+    -- 单次pcall处理所有属性检查
     pcall(function()
         if instance:IsA("RemoteFunction") then
             props.invokeEnabled = true
-        end
-        if instance:IsA("RemoteEvent") then
+        elseif instance:IsA("RemoteEvent") then
             props.fireEnabled = true
-        end
-    end)
-    
-    pcall(function()
-        if instance:IsA("Script") or instance:IsA("LocalScript") or instance:IsA("ModuleScript") then
+        elseif instance:IsA("Script") or instance:IsA("LocalScript") or instance:IsA("ModuleScript") then
             props.disabled = instance.Disabled
-        end
-    end)
-    
-    pcall(function()
-        if instance:IsA("BasePart") then
-            props.position = tostring(instance.Position)
-            props.size = tostring(instance.Size)
-            props.anchored = instance.Anchored
-            props.canCollide = instance.CanCollide
-        end
-    end)
-    
-    pcall(function()
-        if instance:IsA("GuiObject") then
-            props.visible = instance.Visible
         end
     end)
     
     return props
 end
 
--- 递归扫描（扫描所有对象，建立索引）
-local function scanInstance(instance, path, depth, results, counters, seenInstances)
-    if counters.total >= Scanner.config.maxObjects then return end
-    if depth > Scanner.config.maxDepth then return end
-    
-    -- 去重检查：使用实例引用作为唯一标识
+-- 处理单个对象
+local function processInstance(instance, path, depth, results, seenInstances)
+    -- 去重检查
     if seenInstances[instance] then return end
     seenInstances[instance] = true
     
     local currentPath = path .. "." .. instance.Name
-    counters.total = counters.total + 1
-    
     local className = instance.ClassName
-    local objInfo = createObjectInfo(instance, currentPath, depth)
-    objInfo.properties = getProperties(instance)
     
-    -- 所有对象都存入 all
+    -- 创建对象信息（不获取属性以提速）
+    local objInfo = {
+        name = instance.Name,
+        className = className,
+        path = currentPath,
+        depth = depth,
+        instance = instance,
+        children = {}
+    }
+    
+    -- 存入结果
     table.insert(results.all, objInfo)
     
-    -- 建立类型索引
+    -- 类型索引
     if not results.typeIndex[className] then
         results.typeIndex[className] = {}
     end
     table.insert(results.typeIndex[className], objInfo)
     
-    -- 建立名称索引（支持快速查找同名对象）
+    -- 名称索引
     local nameLower = instance.Name:lower()
     if not results.nameIndex[nameLower] then
         results.nameIndex[nameLower] = {}
     end
     table.insert(results.nameIndex[nameLower], objInfo)
     
-    -- 重要类型单独存储（快速访问）
+    -- 重要类型
     if Scanner.config.importantTypes[className] then
         table.insert(results.focused, objInfo)
-        
         if className == "RemoteEvent" or className == "RemoteFunction" then
             table.insert(results.remotes, objInfo)
         elseif className == "LocalScript" or className == "Script" or className == "ModuleScript" then
@@ -147,13 +129,41 @@ local function scanInstance(instance, path, depth, results, counters, seenInstan
         end
     end
     
-    -- 统计类型
+    -- 类型统计
     results.typeCounts[className] = (results.typeCounts[className] or 0) + 1
     
-    -- 递归扫描子对象
-    local children = instance:GetChildren()
-    for _, child in ipairs(children) do
-        scanInstance(child, currentPath, depth + 1, results, counters, seenInstances)
+    return currentPath
+end
+
+-- 扫描服务（使用队列，非递归，支持yield）
+local function scanServiceWithQueue(rootInstance, rootPath, results, counters, seenInstances, yieldCallback)
+    local queue = {{instance = rootInstance, path = rootPath, depth = 0}}
+    local processed = 0
+    
+    while #queue > 0 do
+        local item = table.remove(queue, 1)
+        local instance = item.instance
+        
+        if not seenInstances[instance] and item.depth <= Scanner.config.maxDepth then
+            processInstance(instance, item.path, item.depth, results, seenInstances)
+            counters.total = counters.total + 1
+            processed = processed + 1
+            
+            -- 每处理500个对象yield一次
+            if processed % 500 == 0 and yieldCallback then
+                yieldCallback(counters.total)
+            end
+            
+            -- 添加子对象到队列
+            local children = instance:GetChildren()
+            for _, child in ipairs(children) do
+                table.insert(queue, {
+                    instance = child,
+                    path = item.path .. "." .. instance.Name,
+                    depth = item.depth + 1
+                })
+            end
+        end
     end
 end
 
@@ -172,43 +182,30 @@ local function scanNilInstances(results, counters, seenInstances)
     end
     
     for _, instance in pairs(nilInstances) do
-        if counters.total >= Scanner.config.maxObjects then
-            break
+        if not seenInstances[instance] then
+            local objInfo = {
+                name = instance.Name,
+                className = instance.ClassName,
+                path = "nil." .. instance.Name,
+                depth = 0,
+                instance = instance,
+                isNil = true
+            }
+            table.insert(results.all, objInfo)
+            counters.total = counters.total + 1
+            
+            -- 类型索引
+            local cn = instance.ClassName
+            if not results.typeIndex[cn] then results.typeIndex[cn] = {} end
+            table.insert(results.typeIndex[cn], objInfo)
+            
+            -- 名称索引
+            local nl = instance.Name:lower()
+            if not results.nameIndex[nl] then results.nameIndex[nl] = {} end
+            table.insert(results.nameIndex[nl], objInfo)
+            
+            results.typeCounts[cn] = (results.typeCounts[cn] or 0) + 1
         end
-        
-        -- 去重检查
-        if seenInstances[instance] then
-            continue
-        end
-        seenInstances[instance] = true
-        
-        counters.total = counters.total + 1
-        local className = instance.ClassName
-        local objInfo = createObjectInfo(instance, "nil." .. instance.Name, 0)
-        objInfo.properties = getProperties(instance)
-        objInfo.isNil = true
-        
-        table.insert(results.all, objInfo)
-        
-        -- 建立类型索引
-        if not results.typeIndex[className] then
-            results.typeIndex[className] = {}
-        end
-        table.insert(results.typeIndex[className], objInfo)
-        
-        -- 建立名称索引
-        local nameLower = instance.Name:lower()
-        if not results.nameIndex[nameLower] then
-            results.nameIndex[nameLower] = {}
-        end
-        table.insert(results.nameIndex[nameLower], objInfo)
-        
-        -- 重要类型
-        if Scanner.config.importantTypes[className] then
-            table.insert(results.focused, objInfo)
-        end
-        
-        results.typeCounts[className] = (results.typeCounts[className] or 0) + 1
     end
 end
 
@@ -220,14 +217,14 @@ function Scanner:scan(onProgress)
         remotes = {},
         scripts = {},
         services = {},
-        typeIndex = {},      -- 按类型索引
-        nameIndex = {},      -- 按名称索引
-        typeCounts = {},     -- 类型统计
+        typeIndex = {},
+        nameIndex = {},
+        typeCounts = {},
         scanTime = os.time()
     }
     
     local counters = { total = 0 }
-    local seenInstances = {}  -- 去重表，使用实例引用
+    local seenInstances = {}
     
     -- 辅助函数：更新缓存并触发进度回调
     local function updateCacheAndNotify(serviceName)
@@ -248,28 +245,28 @@ function Scanner:scan(onProgress)
             }
         }
         
-        -- 统计类型数量
         local typeCount = 0
         for _ in pairs(results.typeIndex) do
             typeCount = typeCount + 1
         end
         self.cache.stats.totalTypes = typeCount
         
-        -- 触发进度回调
         if onProgress then
             onProgress(#results.all, typeCount, serviceName)
         end
     end
     
-    -- 扫描各个服务
+    -- 扫描各个服务（使用队列方式）
     for _, serviceInfo in ipairs(self.config.services) do
         local serviceName = serviceInfo.name
         local service = serviceInfo.service
         
         if service then
             table.insert(results.services, serviceName)
-            scanInstance(service, serviceName, 0, results, counters, seenInstances)
-            -- 每扫描完一个服务就更新缓存并通知
+            scanServiceWithQueue(service, serviceName, results, counters, seenInstances, function(count)
+                -- 每500个对象更新一次
+                updateCacheAndNotify(serviceName)
+            end)
             updateCacheAndNotify(serviceName)
         end
     end

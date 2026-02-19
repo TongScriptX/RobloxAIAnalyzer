@@ -1738,87 +1738,13 @@ function UI:buildResourceTree(resources)
     return tree
 end
 
--- 刷新资源列表显示（支持增量加载）
+-- 刷新资源列表显示（优化版：限制显示数量）
 function UI:refreshResourceList()
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
-    -- 初始化增量加载状态
-    if not self.resourceLoadState then
-        self.resourceLoadState = {
-            lastCount = 0,
-            loading = false
-        }
-    end
-    
-    -- 如果正在加载，跳过
-    if self.resourceLoadState.loading then
-        return
-    end
-    
-    -- 辅助函数：从Scanner对象创建资源项
-    local function makeResourceItem(obj)
-        return {
-            name = obj.name,
-            className = obj.className,
-            path = obj.path,
-            instance = obj.instance,
-            onClick = function()
-                if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
-                    self.resourceCallbacks.sendToAI(obj)
-                end
-            end
-        }
-    end
-    
-    -- 获取当前标签的资源
-    local function getResources()
-        local resources = {}
-        
-        if self.currentResourceTab == "types" then
-            return nil  -- 类型视图单独处理
-        elseif self.currentResourceTab == "search" then
-            if searchQuery ~= "" and Scanner then
-                local result = Scanner:search(searchQuery, {limit = 200})
-                for _, r in ipairs(result.results) do
-                    table.insert(resources, makeResourceItem(r))
-                end
-            end
-        elseif self.currentResourceTab == "remotes" then
-            if Scanner and Scanner.cache.typeIndex then
-                for typeName, objects in pairs(Scanner.cache.typeIndex) do
-                    if typeName:find("Remote") then
-                        for _, obj in ipairs(objects) do
-                            table.insert(resources, makeResourceItem(obj))
-                        end
-                    end
-                end
-            end
-        elseif self.currentResourceTab == "scripts" then
-            if Scanner and Scanner.cache.typeIndex then
-                for _, typeName in ipairs({"LocalScript", "Script", "ModuleScript"}) do
-                    local objects = Scanner.cache.typeIndex[typeName]
-                    if objects then
-                        for _, obj in ipairs(objects) do
-                            table.insert(resources, makeResourceItem(obj))
-                        end
-                    end
-                end
-            end
-        else
-            -- 全部
-            if Scanner and Scanner.cache.objects then
-                for _, obj in ipairs(Scanner.cache.objects) do
-                    table.insert(resources, makeResourceItem(obj))
-                end
-            end
-        end
-        return resources
-    end
-    
     -- 类型视图单独处理
     if self.currentResourceTab == "types" then
-        -- 清空并渲染类型视图
         for _, child in pairs(self.resourceList:GetChildren()) do
             if child:IsA("GuiObject") then
                 child:Destroy()
@@ -1828,66 +1754,108 @@ function UI:refreshResourceList()
         return
     end
     
-    -- 检查是否需要重新加载（数量变化或搜索词变化）
-    local resources = getResources()
-    if not resources then return end
+    -- 清空列表
+    for _, child in pairs(self.resourceList:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child:Destroy()
+        end
+    end
     
-    local currentCount = #resources
+    if not Scanner or not Scanner.cache.typeIndex then
+        self:addResourceItem("请先扫描游戏资源", "", "", nil, false)
+        return
+    end
     
-    -- 如果搜索词变化，需要完全重新加载
-    if searchQuery ~= (self.lastSearchQuery or "") then
-        self.lastSearchQuery = searchQuery
-        self.resourceLoadState.lastCount = 0
-        -- 清空列表
-        for _, child in pairs(self.resourceList:GetChildren()) do
-            if child:IsA("GuiObject") then
-                child:Destroy()
+    -- 最大显示数量
+    local maxDisplay = 2000
+    
+    -- 获取资源（带数量限制）
+    local resources = {}
+    local totalCount = 0
+    
+    if self.currentResourceTab == "search" then
+        if searchQuery ~= "" then
+            local result = Scanner:search(searchQuery, {limit = maxDisplay})
+            for _, r in ipairs(result.results) do
+                table.insert(resources, r)
+            end
+            totalCount = result.totalCount or #resources
+        end
+    elseif self.currentResourceTab == "remotes" then
+        for typeName, objects in pairs(Scanner.cache.typeIndex) do
+            if typeName:find("Remote") then
+                for _, obj in ipairs(objects) do
+                    table.insert(resources, obj)
+                end
             end
         end
+        totalCount = #resources
+    elseif self.currentResourceTab == "scripts" then
+        for _, typeName in ipairs({"LocalScript", "Script", "ModuleScript"}) do
+            local objects = Scanner.cache.typeIndex[typeName]
+            if objects then
+                for _, obj in ipairs(objects) do
+                    table.insert(resources, obj)
+                end
+            end
+        end
+        totalCount = #resources
+    else
+        -- 全部：直接引用，不复制
+        resources = Scanner.cache.objects
+        totalCount = #resources
     end
     
-    -- 增量加载：只添加新项目
-    local startIndex = self.resourceLoadState.lastCount + 1
-    if startIndex > currentCount then
-        return  -- 没有新项目
-    end
+    -- 显示数量统计
+    local countLabel = Instance.new("TextLabel", self.resourceList)
+    countLabel.Size = UDim2.new(1, -8, 0, 24)
+    countLabel.BackgroundTransparency = 1
+    countLabel.Text = string.format("共 %d 个对象%s", totalCount, totalCount > maxDisplay and " (显示前" .. maxDisplay .. "个，请使用搜索或按类型筛选)" or "")
+    countLabel.TextColor3 = self.Theme.textMuted
+    countLabel.TextSize = 11
+    countLabel.Font = Enum.Font.Gotham
+    countLabel.TextXAlignment = Enum.TextXAlignment.Left
     
-    -- 分批加载，每批100个
+    -- 渲染资源项（分批）
+    local displayCount = math.min(#resources, maxDisplay)
     local batchSize = 100
-    local endIndex = math.min(startIndex + batchSize - 1, currentCount)
+    local currentIndex = 1
     
-    for i = startIndex, endIndex do
-        local res = resources[i]
-        if res then
-            self:addTreeResourceItem(res.name, res.className, res.path, res.onClick, 0)
+    local function renderBatch()
+        local endIndex = math.min(currentIndex + batchSize - 1, displayCount)
+        
+        for i = currentIndex, endIndex do
+            local obj = resources[i]
+            if obj then
+                self:addTreeResourceItem(obj.name, obj.className, obj.path, function()
+                    if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
+                        self.resourceCallbacks.sendToAI(obj)
+                    end
+                end, 0)
+            end
+        end
+        
+        currentIndex = endIndex + 1
+        
+        -- 继续下一批
+        if currentIndex <= displayCount then
+            spawn(function()
+                wait(0.001)
+                renderBatch()
+            end)
         end
     end
     
-    self.resourceLoadState.lastCount = endIndex
-    
-    -- 如果还有更多，异步继续加载
-    if endIndex < currentCount then
-        self.resourceLoadState.loading = true
-        spawn(function()
-            wait(0.01)  -- 让出一帧
-            self.resourceLoadState.loading = false
-            self:refreshResourceList()
-        end)
-    end
+    renderBatch()
 end
 
--- 清空资源列表并重置加载状态
+-- 清空资源列表
 function UI:clearResourceList()
     for _, child in pairs(self.resourceList:GetChildren()) do
         if child:IsA("GuiObject") then
             child:Destroy()
         end
     end
-    self.resourceLoadState = {
-        lastCount = 0,
-        loading = false
-    }
-    self.lastSearchQuery = ""
 end
 
 -- 渲染按类型视图
