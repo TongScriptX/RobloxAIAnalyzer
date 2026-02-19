@@ -662,7 +662,8 @@ function App:sendToAI(query)
         ui:hideLoading()
         
         if result then
-            ui:addMessage(result.content, false)
+            -- 传递思考过程（如果存在）
+            ui:addMessage(result.content, false, result.reasoning)
             if result.usage then
                 ui:updateTokenDisplay(result.usage)
             end

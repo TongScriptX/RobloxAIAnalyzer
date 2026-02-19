@@ -737,6 +737,90 @@ local function setClipboard(text)
     return false
 end
 
+-- 创建可折叠的思考区域
+function UI:createThinkingBlock(reasoning, parent)
+    local isExpanded = false
+    local maxPreviewLen = 150
+    
+    local thinkingFrame = Instance.new("Frame", parent)
+    thinkingFrame.Size = UDim2.new(1, 0, 0, 0)
+    thinkingFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    thinkingFrame.BorderSizePixel = 0
+    thinkingFrame.AutomaticSize = Enum.AutomaticSize.Y
+    createCorner(thinkingFrame, 6)
+    
+    local container = Instance.new("Frame", thinkingFrame)
+    container.Size = UDim2.new(1, -8, 0, 0)
+    container.Position = UDim2.new(0, 4, 0, 4)
+    container.BackgroundTransparency = 1
+    container.AutomaticSize = Enum.AutomaticSize.Y
+    
+    local listLayout = Instance.new("UIListLayout", container)
+    listLayout.Padding = UDim.new(0, 4)
+    
+    -- 标题栏（可点击展开/收起）
+    local header = Instance.new("TextButton", container)
+    header.Size = UDim2.new(1, 0, 0, 28)
+    header.BackgroundTransparency = 1
+    header.Text = ""
+    
+    local icon = Instance.new("TextLabel", header)
+    icon.Size = UDim2.new(0, 20, 1, 0)
+    icon.Position = UDim2.new(0, 0, 0, 0)
+    icon.BackgroundTransparency = 1
+    icon.Text = "💭"
+    icon.TextSize = 14
+    icon.Font = Enum.Font.Gotham
+    
+    local title = Instance.new("TextLabel", header)
+    title.Size = UDim2.new(1, -40, 1, 0)
+    title.Position = UDim2.new(0, 22, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "思考过程"
+    title.TextColor3 = self.Theme.textSecondary
+    title.TextSize = 12
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local arrow = Instance.new("TextLabel", header)
+    arrow.Name = "Arrow"
+    arrow.Size = UDim2.new(0, 16, 1, 0)
+    arrow.Position = UDim2.new(1, -16, 0, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Text = "▶"
+    arrow.TextColor3 = self.Theme.textMuted
+    arrow.TextSize = 10
+    arrow.Font = Enum.Font.Gotham
+    
+    -- 内容区域（默认隐藏）
+    local contentFrame = Instance.new("Frame", container)
+    contentFrame.Name = "ContentFrame"
+    contentFrame.Size = UDim2.new(1, 0, 0, 0)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.AutomaticSize = Enum.AutomaticSize.Y
+    contentFrame.Visible = false
+    
+    local contentLabel = Instance.new("TextLabel", contentFrame)
+    contentLabel.Size = UDim2.new(1, 0, 0, 0)
+    contentLabel.BackgroundTransparency = 1
+    contentLabel.Text = reasoning
+    contentLabel.TextColor3 = self.Theme.textSecondary
+    contentLabel.TextSize = 12
+    contentLabel.Font = Enum.Font.Gotham
+    contentLabel.TextWrapped = true
+    contentLabel.TextXAlignment = Enum.TextXAlignment.Left
+    contentLabel.AutomaticSize = Enum.AutomaticSize.Y
+    
+    -- 点击展开/收起
+    header.MouseButton1Click:Connect(function()
+        isExpanded = not isExpanded
+        contentFrame.Visible = isExpanded
+        arrow.Text = isExpanded and "▼" or "▶"
+    end)
+    
+    return thinkingFrame
+end
+
 UI.messageCallbacks = {}
 
 function UI:onExecute(callback)
@@ -747,8 +831,8 @@ function UI:onSave(callback)
     self.messageCallbacks.onSave = callback
 end
 
--- 添加消息气泡（支持Markdown）
-function UI:addMessage(text, isUser)
+-- 添加消息气泡（支持Markdown和思考过程）
+function UI:addMessage(text, isUser, reasoning)
     local blocks = parseMarkdown(text)
     
     local msgFrame = Instance.new("Frame", self.messageArea)
@@ -768,6 +852,11 @@ function UI:addMessage(text, isUser)
     
     local listLayout = Instance.new("UIListLayout", container)
     listLayout.Padding = UDim.new(0, 6)
+    
+    -- 如果有思考过程，先显示思考区域
+    if reasoning and #reasoning > 0 then
+        local thinkingFrame = self:createThinkingBlock(reasoning, container)
+    end
     
     -- 存储所有代码块用于操作
     local codeBlocks = {}

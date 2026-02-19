@@ -228,10 +228,14 @@ function AIClient:chat(userMessage, systemPrompt, options)
         end
     end
     
-    -- 获取内容：优先使用 content，其次使用 reasoning_content
+    -- 获取内容：分别处理 reasoning_content 和 content
+    local reasoning = assistantMessage.reasoning_content
     local content = assistantMessage.content
+    
+    -- 如果没有 content，使用 reasoning 作为 content
     if not content or content == "" then
-        content = assistantMessage.reasoning_content
+        content = reasoning
+        reasoning = nil
     end
     
     -- 如果仍然没有内容，尝试使用工具结果
@@ -255,6 +259,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
     
     return {
         content = content,
+        reasoning = reasoning,  -- 思考过程（可选）
         model = response.data.model,
         usage = response.data.usage,
         provider = provider.name,
