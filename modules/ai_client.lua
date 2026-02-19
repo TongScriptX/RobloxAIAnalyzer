@@ -181,14 +181,28 @@ function AIClient:chat(userMessage, systemPrompt, options)
         assistantMessage = followUpChoice.message
     end
     
+    -- 达到最大迭代次数时，返回工具结果汇总
     if iteration >= maxIterations then
-        warn("[AI CLI] Reached max tool call iterations")
+        warn("[AI CLI] Reached max tool call iterations, returning tool results")
+        local fallbackContent = self:generateFallbackContent(lastToolResults)
+        if fallbackContent then
+            return {
+                content = fallbackContent,
+                provider = provider.name
+            }
+        end
     end
     
     -- 获取内容：优先使用 content，其次使用 reasoning_content
     local content = assistantMessage.content
     if not content or content == "" then
         content = assistantMessage.reasoning_content
+    end
+    
+    -- 如果仍然没有内容，尝试使用工具结果
+    if not content or content == "" then
+        warn("[AI CLI] No content in response, using tool results")
+        content = self:generateFallbackContent(lastToolResults)
     end
     
     if not content or content == "" then
@@ -207,58 +221,127 @@ function AIClient:chat(userMessage, systemPrompt, options)
     }
 end
 
--- 生成备用内容（当工具调用后API请求失败时）
+-- 生成备用内容（当工具调用后API请求失败或达到最大迭代时）
 function AIClient:generateFallbackContent(toolResults)
     local parts = {}
+    local allResources = {}
+    local allScripts = {}
+    local allRemotes = {}
     
+    -- 收集所有结果
     for toolName, result in pairs(toolResults) do
         if result.error then
-            parts[#parts + 1] = string.format("**%s 结果:** %s", toolName, result.error)
+            -- 忽略错误，继续处理其他结果
         elseif result.results then
-            parts[#parts + 1] = string.format("**%s 找到 %d 个结果:**", toolName, result.count)
-            for i, r in ipairs(result.results) do
-                if i > 10 then
-                    parts[#parts + 1] = "... 还有 " .. (result.count - 10) .. " 个"
-                    break
+            for _, r in ipairs(result.results) do
+                if r.type == "LocalScript" or r.type == "Script" or r.type == "ModuleScript" then
+                    allScripts[r.name] = r
+                elseif r.type == "RemoteEvent" or r.type == "RemoteFunction" then
+                    allRemotes[r.name] = r
+                else
+                    allResources[r.name] = r
                 end
-                parts[#parts + 1] = string.format("- %s [%s] %s", r.name, r.type, r.path or "")
             end
         elseif result.source then
-            parts[#parts + 1] = string.format("**脚本 %s (%s):**", result.name, result.type)
-            parts[#parts + 1] = string.format("路径: %s", result.path)
-            parts[#parts + 1] = "```lua"
-            parts[#parts + 1] = result.source:sub(1, 2000)
-            if #result.source > 2000 then
-                parts[#parts + 1] = "... (已截断)"
-            end
-            parts[#parts + 1] = "```"
+            allScripts[result.name] = {
+                name = result.name,
+                type = result.type,
+                path = result.path,
+                source = result.source
+            }
         elseif result.example then
-            parts[#parts + 1] = string.format("**Remote: %s (%s)**", result.name, result.type)
-            parts[#parts + 1] = string.format("路径: %s", result.path)
-            parts[#parts + 1] = "```lua"
-            parts[#parts + 1] = result.example
-            parts[#parts + 1] = "```"
-        elseif result.remotes or result.scripts then
-            if result.remotes and #result.remotes > 0 then
-                parts[#parts + 1] = string.format("**Remotes (%d):**", result.remoteCount or #result.remotes)
-                for i, r in ipairs(result.remotes) do
-                    parts[#parts + 1] = string.format("- %s [%s]", r.name, r.type)
-                end
+            allRemotes[result.name] = {
+                name = result.name,
+                type = result.type,
+                path = result.path,
+                example = result.example
+            }
+        elseif result.remotes then
+            for _, r in ipairs(result.remotes) do
+                allRemotes[r.name] = r
             end
-            if result.scripts and #result.scripts > 0 then
-                parts[#parts + 1] = string.format("**Scripts (%d):**", result.scriptCount or #result.scripts)
-                for i, s in ipairs(result.scripts) do
-                    parts[#parts + 1] = string.format("- %s [%s]", s.name, s.type)
-                end
+        elseif result.scripts then
+            for _, s in ipairs(result.scripts) do
+                allScripts[s.name] = s
             end
         end
     end
     
-    if #parts > 0 then
-        return "工具执行结果:\n\n" .. table.concat(parts, "\n")
+    -- 生成汇总
+    parts[#parts + 1] = "📋 **资源扫描完成**\n"
+    
+    local resourceCount = 0
+    for _ in pairs(allResources) do resourceCount = resourceCount + 1 end
+    local scriptCount = 0
+    for _ in pairs(allScripts) do scriptCount = scriptCount + 1 end
+    local remoteCount = 0
+    for _ in pairs(allRemotes) do remoteCount = remoteCount + 1 end
+    
+    if remoteCount > 0 then
+        parts[#parts + 1] = string.format("\n**发现 %d 个 Remote:**", remoteCount)
+        local count = 0
+        for name, r in pairs(allRemotes) do
+            if count >= 10 then
+                parts[#parts + 1] = "... 还有更多"
+                break
+            end
+            parts[#parts + 1] = string.format("- %s [%s] %s", name, r.type, r.path or "")
+            count = count + 1
+        end
     end
     
-    return nil
+    if scriptCount > 0 then
+        parts[#parts + 1] = string.format("\n**发现 %d 个脚本:**", scriptCount)
+        local count = 0
+        for name, s in pairs(allScripts) do
+            if count >= 10 then
+                parts[#parts + 1] = "... 还有更多"
+                break
+            end
+            parts[#parts + 1] = string.format("- %s [%s] %s", name, s.type, s.path or "")
+            count = count + 1
+        end
+    end
+    
+    if resourceCount > 0 then
+        parts[#parts + 1] = string.format("\n**发现 %d 个其他资源:**", resourceCount)
+        local count = 0
+        for name, r in pairs(allResources) do
+            if count >= 10 then
+                parts[#parts + 1] = "... 还有更多"
+                break
+            end
+            parts[#parts + 1] = string.format("- %s [%s] %s", name, r.type, r.path or "")
+            count = count + 1
+        end
+    end
+    
+    -- 如果找到了 Chest 相关资源，生成示例脚本
+    local chestScripts = {}
+    for name, s in pairs(allScripts) do
+        if name:lower():find("chest") then
+            chestScripts[#chestScripts + 1] = s
+        end
+    end
+    
+    if #chestScripts > 0 then
+        parts[#parts + 1] = "\n\n**📦 宝箱相关脚本:**"
+        for _, s in ipairs(chestScripts) do
+            if s.source then
+                parts[#parts + 1] = string.format("\n**%s:**", s.name)
+                parts[#parts + 1] = "```lua"
+                parts[#parts + 1] = s.source:sub(1, 1500)
+                if #s.source > 1500 then
+                    parts[#parts + 1] = "... (已截断)"
+                end
+                parts[#parts + 1] = "```"
+            end
+        end
+    end
+    
+    parts[#parts + 1] = "\n\n💡 **提示:** 如需更详细的分析，请告诉我具体要查看哪个资源。"
+    
+    return table.concat(parts, "\n")
 end
 
 -- 分析游戏资源
@@ -267,20 +350,24 @@ function AIClient:analyzeResources(query, resourceContext, options)
     
     local systemPrompt = [[You are a Roblox game analysis expert. You have access to tools to search and read game resources.
 
-IMPORTANT: Use tools to get information when needed, don't guess.
+IMPORTANT RULES:
+1. Use tools efficiently - limit to 3-4 tool calls max before responding
+2. Don't repeat the same search multiple times
+3. After getting info, respond directly with useful code/analysis
+4. If you can't find something after 2 searches, tell the user
 
 Available tools:
-- search_resources: Search for resources by name/type
+- search_resources: Search by name/type (use specific keywords)
 - read_script: Read script source code
 - get_remote_info: Get Remote details
-- list_resources: List available resources
+- list_resources: List all resources of a type
 
-Be concise and practical. Generate working Lua code when asked.]]
+Be concise. Generate working Lua code when asked. Respond in Chinese.]]
 
     local contextSummary = ""
     if resourceContext then
         contextSummary = string.format(
-            "Game: %s\nRemotes available: %d\nScripts available: %d\nUse tools to get details.",
+            "Game: %s\nRemotes: %d | Scripts: %d\nUse tools efficiently, then respond directly.",
             resourceContext.gameName or "Unknown",
             #(resourceContext.remotes or {}),
             #(resourceContext.scripts or {})

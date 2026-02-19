@@ -629,19 +629,24 @@ function UI:showLoading()
     if self.isLoading then return end
     self.isLoading = true
     self.loadingDots = 0
+    self.lastDotTime = 0
     
     -- 禁用输入
     self.inputBox.PlaceholderText = ""
     self.sendBtn.Text = "..."
     self.sendBtn.BackgroundColor3 = self.Theme.textMuted
     
-    -- 启动动画
+    -- 启动动画（每0.4秒更新一次）
     if self.loadingConnection then
         self.loadingConnection:Disconnect()
     end
     
     self.loadingConnection = RunService.Heartbeat:Connect(function()
         if not self.isLoading then return end
+        
+        local now = os.clock()
+        if now - self.lastDotTime < 0.4 then return end
+        self.lastDotTime = now
         
         self.loadingDots = (self.loadingDots + 1) % 4
         local dots = string.rep("●", self.loadingDots + 1) .. string.rep("○", 3 - self.loadingDots)
