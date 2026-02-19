@@ -1583,14 +1583,84 @@ function UI:refreshResourceList()
     local resources = self.allResources[self.currentResourceTab] or {}
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
+    -- 按路径分组
+    local pathGroups = {}
+    local filteredResources = {}
+    
     for _, res in ipairs(resources) do
         -- 搜索过滤
         if searchQuery == "" or 
            res.name:lower():find(searchQuery, 1, true) or 
+           res.path:lower():find(searchQuery, 1, true) or
            res.className:lower():find(searchQuery, 1, true) then
-            self:addResourceItem(res.name, res.className, res.path, res.onClick)
+            table.insert(filteredResources, res)
+            
+            -- 提取路径的第一级目录
+            local path = res.path or ""
+            local firstSlash = path:find("%.") 
+            local topPath = firstSlash and path:sub(1, firstSlash - 1) or path
+            
+            if not pathGroups[topPath] then
+                pathGroups[topPath] = {}
+            end
+            table.insert(pathGroups[topPath], res)
         end
     end
+    
+    -- 按路径分组显示
+    for topPath, groupResources in pairs(pathGroups) do
+        -- 添加路径分组头
+        self:addPathGroupHeader(topPath, #groupResources)
+        
+        -- 添加该路径下的资源
+        for _, res in ipairs(groupResources) do
+            self:addResourceItem(res.name, res.className, res.path, res.onClick, true)
+        end
+    end
+end
+
+-- 添加路径分组头
+function UI:addPathGroupHeader(path, count)
+    local header = Instance.new("Frame", self.resourceList)
+    header.Size = UDim2.new(1, -8, 0, 28)
+    header.BackgroundColor3 = self.Theme.background
+    header.BorderSizePixel = 0
+    createCorner(header, 4)
+    
+    local icon = "📁"
+    if path:find("ReplicatedStorage") then
+        icon = "🔄"
+    elseif path:find("Workspace") then
+        icon = "🗺️"
+    elseif path:find("Players") then
+        icon = "👥"
+    elseif path:find("Lighting") then
+        icon = "💡"
+    elseif path:find("StarterGui") then
+        icon = "🖥️"
+    end
+    
+    local pathLabel = Instance.new("TextLabel", header)
+    pathLabel.Size = UDim2.new(1, -60, 1, 0)
+    pathLabel.Position = UDim2.new(0, 8, 0, 0)
+    pathLabel.BackgroundTransparency = 1
+    pathLabel.Text = icon .. " " .. path
+    pathLabel.TextColor3 = self.Theme.accent
+    pathLabel.TextSize = 12
+    pathLabel.Font = Enum.Font.GothamBold
+    pathLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local countLabel = Instance.new("TextLabel", header)
+    countLabel.Size = UDim2.new(0, 40, 1, 0)
+    countLabel.Position = UDim2.new(1, -48, 0, 0)
+    countLabel.BackgroundTransparency = 1
+    countLabel.Text = tostring(count)
+    countLabel.TextColor3 = self.Theme.textMuted
+    countLabel.TextSize = 11
+    countLabel.Font = Enum.Font.Gotham
+    countLabel.TextXAlignment = Enum.TextXAlignment.Right
+    
+    return header
 end
 
 -- 添加资源到分类
@@ -1831,7 +1901,7 @@ function UI:addSystemMessage(text)
 end
 
 -- 资源列表项
-function UI:addResourceItem(name, className, path, onClick)
+function UI:addResourceItem(name, className, path, onClick, showFullPath)
     local typeColor = self.Theme.textSecondary
     if className:find("Remote") then
         typeColor = Color3.fromRGB(255, 180, 100)
@@ -1840,7 +1910,7 @@ function UI:addResourceItem(name, className, path, onClick)
     end
     
     local item = Instance.new("TextButton", self.resourceList)
-    item.Size = UDim2.new(1, -8, 0, 40)  -- 增加高度显示路径
+    item.Size = UDim2.new(1, -8, 0, showFullPath and 44 or 40)
     item.BackgroundColor3 = self.Theme.backgroundSecondary
     item.BorderSizePixel = 0
     item.Text = ""
@@ -1862,8 +1932,8 @@ function UI:addResourceItem(name, className, path, onClick)
     
     -- 第一行：名称和类型
     local nameText = Instance.new("TextLabel", item)
-    nameText.Size = UDim2.new(0.6, 0, 0.5, 0)
-    nameText.Position = UDim2.new(0, 8, 0, 0)
+    nameText.Size = UDim2.new(0.55, 0, 0.5, 0)
+    nameText.Position = UDim2.new(0, showFullPath and 16 or 8, 0, 0)
     nameText.BackgroundTransparency = 1
     nameText.Text = icon .. " " .. name
     nameText.TextColor3 = self.Theme.text
@@ -1874,7 +1944,7 @@ function UI:addResourceItem(name, className, path, onClick)
     
     local classText = Instance.new("TextLabel", item)
     classText.Size = UDim2.new(0.35, 0, 0.5, 0)
-    classText.Position = UDim2.new(0.62, 0, 0, 0)
+    classText.Position = UDim2.new(0.58, 0, 0, 0)
     classText.BackgroundTransparency = 1
     classText.Text = className
     classText.TextColor3 = typeColor
@@ -1883,17 +1953,32 @@ function UI:addResourceItem(name, className, path, onClick)
     classText.TextXAlignment = Enum.TextXAlignment.Left
     classText.TextTruncate = Enum.TextTruncate.AtEnd
     
-    -- 第二行：路径
-    local pathText = Instance.new("TextLabel", item)
-    pathText.Size = UDim2.new(1, -16, 0.5, 0)
-    pathText.Position = UDim2.new(0, 8, 0.5, 0)
-    pathText.BackgroundTransparency = 1
-    pathText.Text = path
-    pathText.TextColor3 = self.Theme.textMuted
-    pathText.TextSize = 10
-    pathText.Font = Enum.Font.Code
-    pathText.TextXAlignment = Enum.TextXAlignment.Left
-    pathText.TextTruncate = Enum.TextTruncate.AtEnd
+    -- 第二行：完整路径（资源页面）
+    if showFullPath then
+        -- 显示完整路径，带缩进
+        local pathText = Instance.new("TextLabel", item)
+        pathText.Size = UDim2.new(1, -24, 0.5, 0)
+        pathText.Position = UDim2.new(0, 16, 0.5, 0)
+        pathText.BackgroundTransparency = 1
+        pathText.Text = "  " .. path
+        pathText.TextColor3 = self.Theme.textMuted
+        pathText.TextSize = 10
+        pathText.Font = Enum.Font.Code
+        pathText.TextXAlignment = Enum.TextXAlignment.Left
+        pathText.TextTruncate = Enum.TextTruncate.AtEnd
+    else
+        -- 聊天页面显示简短路径
+        local pathText = Instance.new("TextLabel", item)
+        pathText.Size = UDim2.new(1, -16, 0.5, 0)
+        pathText.Position = UDim2.new(0, 8, 0.5, 0)
+        pathText.BackgroundTransparency = 1
+        pathText.Text = path
+        pathText.TextColor3 = self.Theme.textMuted
+        pathText.TextSize = 10
+        pathText.Font = Enum.Font.Code
+        pathText.TextXAlignment = Enum.TextXAlignment.Left
+        pathText.TextTruncate = Enum.TextTruncate.AtEnd
+    end
     
     item.MouseButton1Click:Connect(onClick)
     
