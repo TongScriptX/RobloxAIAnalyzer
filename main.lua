@@ -1,34 +1,26 @@
--- Roblox AI CLI v2.0.0
+-- Roblox AI CLI v2.1.0
 -- 用法: loadstring(game:HttpGet("https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main/main.lua"))()
 
 local App = {
-    ver = "2.0.0",
+    ver = "2.1.0",
     ready = false,
     exec = {}
 }
 
--- 清理旧UI（支持重复运行）
+-- 清理旧UI
 function App:cleanupOldUI()
     local coreGui = game:GetService("CoreGui")
-    
-    -- 删除所有相关UI
     local uiNames = {"RobloxAIAnalyzer", "AILoadingUI"}
     for _, name in ipairs(uiNames) do
         local existing = coreGui:FindFirstChild(name)
-        if existing then
-            existing:Destroy()
-        end
+        if existing then existing:Destroy() end
     end
-    
-    -- 清理全局状态
     if _G.AIAnalyzer then
         if _G.AIAnalyzer.UI and _G.AIAnalyzer.UI.screenGui then
             _G.AIAnalyzer.UI.screenGui:Destroy()
         end
         _G.AIAnalyzer = nil
     end
-    
-    -- 重置ready状态
     self.ready = false
 end
 
@@ -45,7 +37,6 @@ local function detectExecutor()
         request = nil
     }
     
-    -- 检查 identifyexecutor() 获取准确名称
     local executorName = nil
     if identifyexecutor then
         local ok, name = pcall(identifyexecutor)
@@ -54,7 +45,6 @@ local function detectExecutor()
         end
     end
     
-    -- 根据标识判断
     if executorName then
         if executorName:find("synapse") then
             info.name = "Synapse X"
@@ -75,7 +65,6 @@ local function detectExecutor()
         end
     end
     
-    -- 设置函数
     if syn and syn.request then
         info.request = syn.request
         info.canRequest = true
@@ -108,7 +97,6 @@ local function detectExecutor()
         if readfile then info.readfile = readfile end
     end
     
-    -- 检查通用函数
     if not info.canRequest and game.HttpGet then
         info.name = info.name .. " (HttpGet)"
         info.canRequest = true
@@ -123,7 +111,6 @@ local function detectExecutor()
         info.readfile = readfile
     end
     
-    -- 检查执行和反编译能力
     if loadstring and getgenv then
         info.canExecute = true
     end
@@ -139,7 +126,6 @@ end
 local httpGet
 
 local function getHttpFunc(exec)
-    -- 优先使用 game:HttpGet，更可靠
     if game.HttpGet then
         return function(url) return game:HttpGet(url) end
     elseif exec.request then
@@ -151,53 +137,25 @@ local function getHttpFunc(exec)
     return nil
 end
 
--- 模块加载 - 只用 GitHub raw，最可靠
+-- 模块加载
 local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
 local CACHE_BUSTER = "?v=" .. tostring(os.time())
 
 local function loadModule(path)
     local url = BASE_URL .. "/" .. path .. CACHE_BUSTER
     
-    -- 直接用 game:HttpGet，失败返回 nil
     local ok, res = pcall(httpGet, url)
-    if not ok then
-        warn("[AI CLI] HTTP请求失败: " .. path .. " - " .. tostring(res))
+    if not ok or not res or type(res) ~= "string" or #res <= 10 then
         return nil
     end
     
-    if not res then
-        warn("[AI CLI] 响应为空: " .. path)
-        return nil
-    end
-    
-    if type(res) ~= "string" then
-        warn("[AI CLI] 响应类型错误: " .. path .. " (类型: " .. type(res) .. ")")
-        return nil
-    end
-    
-    if #res <= 10 then
-        warn("[AI CLI] 响应内容太短: " .. path .. " (长度: " .. #res .. ")")
-        return nil
-    end
-    
-    -- 检查是否是有效的Lua代码开头
-    local firstChar = res:sub(1, 1)
-    if firstChar == "<" then
-        warn("[AI CLI] 返回HTML而非Lua: " .. path .. " (开头: " .. res:sub(1, 50) .. "...)")
-        return nil
-    end
+    if res:sub(1, 1) == "<" then return nil end
     
     local fn, err = loadstring(res)
-    if not fn then
-        warn("[AI CLI] 编译失败: " .. path .. " - " .. tostring(err))
-        return nil
-    end
+    if not fn then return nil end
     
     local ok3, mod = pcall(fn)
-    if not ok3 then
-        warn("[AI CLI] 执行失败: " .. path .. " - " .. tostring(mod))
-        return nil
-    end
+    if not ok3 then return nil end
     
     return mod
 end
@@ -211,7 +169,7 @@ local function saveScript(name, content)
         return false, "不支持写入文件"
     end
     
-    local dir = cfg and cfg.Settings.scriptDir or "workspace"
+    local dir = cfg and cfg.Settings and cfg.Settings.scriptDir or "workspace"
     local filename
     
     if dir == "workspace" or dir == "" then
@@ -256,7 +214,6 @@ end
 function App:init()
     if self.ready then return end
     
-    -- 清理已存在的UI（支持重复运行）
     self:cleanupOldUI()
     
     print("[AI CLI] v" .. self.ver .. " 启动中...")
@@ -272,34 +229,24 @@ function App:init()
     
     _G.AIAnalyzer = {Executor = self.exec}
     
-    -- 显示加载中UI
     self:showLoadingUI()
     
-    -- 所有模块列表
     local modules = {
         {name = "Config", path = "config.lua", key = "Config", required = true},
         {name = "Http", path = "modules/http.lua", key = "Http", required = true},
         {name = "Scanner", path = "modules/scanner.lua", key = "Scanner", required = true},
         {name = "Reader", path = "modules/reader.lua", key = "Reader", required = true},
-        {name = "Executor", path = "modules/executor.lua", key = "Executor", required = false},
         {name = "UI", path = "modules/ui.lua", key = "UI", required = true},
         {name = "Tools", path = "modules/tools.lua", key = "Tools", required = false},
-        {name = "ContextManager", path = "modules/context_manager.lua", key = "ContextManager", required = false},
         {name = "AIClient", path = "modules/ai_client.lua", key = "AIClient", required = true},
     }
     
-    -- 加载状态跟踪
-    local loadStatus = {}
-    
-    -- 同步加载所有模块
     for i, mod in ipairs(modules) do
         self:updateLoadingProgress(i, #modules, mod.name)
         local m = loadModule(mod.path)
         if m then
             _G.AIAnalyzer[mod.key] = m
-            loadStatus[mod.name] = true
         else
-            loadStatus[mod.name] = false
             if mod.required then
                 self:hideLoadingUI()
                 warn("[AI CLI] " .. mod.name .. " 加载失败（必需模块）")
@@ -308,37 +255,11 @@ function App:init()
         end
     end
     
-    -- 检查模块加载状态
-    local failedModules = {}
-    for name, success in pairs(loadStatus) do
-        if not success then
-            table.insert(failedModules, name)
-        end
-    end
-    
-    if #failedModules > 0 then
-        warn("[AI CLI] 部分模块加载失败: " .. table.concat(failedModules, ", "))
-    end
-    
-    -- 加载配置和session
     local cfg = _G.AIAnalyzer.Config
-    local ai = _G.AIAnalyzer.AIClient
-    if cfg then
-        if cfg.load then cfg:load() end
-        if cfg.loadSessions then cfg:loadSessions() end
-        if not cfg.CurrentSession then
-            cfg:createSession()
-        end
-        -- 同步 AIClient 的历史
-        if ai and ai.syncHistoryFromConfig then
-            ai:syncHistoryFromConfig(cfg)
-        end
-    end
+    if cfg and cfg.load then cfg:load() end
     
-    -- 隐藏加载UI
     self:hideLoadingUI()
     
-    -- 创建主UI
     local ok, err = pcall(function()
         self:setupUI()
     end)
@@ -453,15 +374,9 @@ function App:setupUI()
         self:loadSettings()
     end)
     
-    -- 创建session列表
-    ui:createSessionList()
-    
     ui:createChatView()
     ui:createSettingsView()
     ui:createResourceView()
-    
-    -- 加载session列表
-    self:refreshSessionList()
     
     ui:showView("chat")
     self:updateConnectionStatus()
@@ -482,8 +397,8 @@ function App:loadSettings()
         if p then
             ui.apiKeyInput.Text = p.apiKey or ""
         end
-        ui.scriptDirInput.Text = cfg.Settings.scriptDir or ""
-        ui:updateConfirmToggle(cfg.Settings.confirmBeforeExecute)
+        ui.scriptDirInput.Text = cfg.Settings and cfg.Settings.scriptDir or ""
+        ui:updateConfirmToggle(cfg.Settings and cfg.Settings.confirmBeforeExecute)
     end
 end
 
@@ -528,30 +443,12 @@ function App:bindEvents()
         end
     end)
     
-    ui.clearHistoryBtn.MouseButton1Click:Connect(function()
-        self:clearCurrentSession()
-    end)
-    
-    ui.exportHistoryBtn.MouseButton1Click:Connect(function()
-        self:exportHistory()
-    end)
-    
-    ui.resetTokenBtn.MouseButton1Click:Connect(function()
-        ui:resetTokenStats()
-        ui:addSystemMessage("✅ Token统计已重置")
-    end)
-    
     ui.scanBtn.MouseButton1Click:Connect(function()
         self:scanResources()
     end)
     
     ui.resourceSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         self:searchResources(ui.resourceSearchBox.Text)
-    end)
-    
-    -- Session相关事件
-    ui.newSessionBtn.MouseButton1Click:Connect(function()
-        self:newSession()
     end)
 end
 
@@ -560,27 +457,15 @@ function App:setupCallbacks()
     
     ui:onExecute(function(code, frame)
         local Config = _G.AIAnalyzer.Config
-        local confirmBeforeExecute = Config and Config.Settings.confirmBeforeExecute
-        
-        if confirmBeforeExecute then
-            local success, err = execScript(code)
-            if success then
-                self:addSystemMessage("✅ 脚本执行成功")
-            else
-                self:addSystemMessage("❌ 执行失败: " .. tostring(err))
-            end
+        local success, err = execScript(code)
+        if success then
+            self:addSystemMessage("✅ 脚本执行成功")
         else
-            local success, err = execScript(code)
-            if success then
-                self:addSystemMessage("✅ 脚本执行成功")
-            else
-                self:addSystemMessage("❌ 执行失败: " .. tostring(err))
-            end
+            self:addSystemMessage("❌ 执行失败: " .. tostring(err))
         end
     end)
     
     ui:onSave(function(code, frame)
-        local Config = _G.AIAnalyzer.Config
         local timestamp = os.date("%Y%m%d_%H%M%S")
         local name = "ai_script_" .. timestamp
         
@@ -615,8 +500,6 @@ function App:showWelcome()
 📌 命令:
 • 帮助 - 显示帮助信息
 • 扫描 - 扫描游戏资源
-• 历史 - 查看对话历史
-• 清除 - 清空对话
 
 🔧 执行器: %s
 📁 支持写入: %s]], 
@@ -635,7 +518,6 @@ function App:sendMessage()
     ui.inputBox.Text = ""
     ui:addMessage(text, true)
     
-    -- 处理特殊命令
     local cmd = text:lower():match("^%s*(.-)%s*$")
     
     if cmd == "帮助" or cmd == "help" then
@@ -653,45 +535,7 @@ function App:sendMessage()
         return
     end
     
-    if cmd == "历史" or cmd == "history" then
-        self:showHistory()
-        return
-    end
-    
-    if cmd == "/compress" or cmd == "压缩" then
-        self:compressContext()
-        return
-    end
-    
     self:sendToAI(text)
-end
-
--- 手动压缩上下文
-function App:compressContext()
-    local ui = _G.AIAnalyzer.UI
-    local ai = _G.AIAnalyzer.AIClient
-    local ctxMgr = _G.AIAnalyzer.ContextManager
-    local cfg = _G.AIAnalyzer.Config
-    
-    if not ai or not ai.conversationHistory or #ai.conversationHistory == 0 then
-        ui:addMessage("⚠️ 对话历史为空", false)
-        return
-    end
-    
-    local before = #ai.conversationHistory
-    
-    if ctxMgr then
-        local ctxConfig = cfg and cfg.ContextConfig or {}
-        ai.conversationHistory = ctxMgr:compact(ai.conversationHistory, ctxConfig, {force = true})
-    else
-        -- 简单压缩：保留最近4条
-        while #ai.conversationHistory > 8 do
-            table.remove(ai.conversationHistory, 1)
-        end
-    end
-    
-    local after = #ai.conversationHistory
-    ui:addMessage(string.format("✅ 上下文已压缩: %d → %d 条消息", before, after), false)
 end
 
 function App:showHelp()
@@ -702,15 +546,12 @@ function App:showHelp()
 📌 基础命令:
 • 帮助/help - 显示此帮助
 • 扫描/scan - 扫描游戏资源
-• 历史/history - 查看对话历史
 • 清除/clear - 清空对话
-• /compress 或 压缩 - 手动压缩上下文
 
 💡 AI使用示例:
 • "分析 game.Players 的结构"
 • "找到所有 RemoteEvent"
 • "生成一个自动拾取金币的脚本"
-• "解释这个脚本的作用: [粘贴代码]"
 
 🔧 代码块操作:
 • 复制 - 复制代码到剪贴板
@@ -718,133 +559,6 @@ function App:showHelp()
 • 保存 - 保存到执行器目录]], false)
 end
 
--- Session管理
-function App:newSession()
-    local ui = _G.AIAnalyzer.UI
-    local cfg = _G.AIAnalyzer.Config
-    local AIClient = _G.AIAnalyzer.AIClient
-    
-    if cfg then
-        cfg:createSession()
-        
-        -- 清除 AIClient 的历史
-        if AIClient then
-            AIClient:clearHistory()
-        end
-        
-        ui:clearMessages()
-        self:refreshSessionList()
-        ui:addMessage("🆕 新对话已创建", false)
-    end
-end
-
-function App:switchSession(session)
-    local ui = _G.AIAnalyzer.UI
-    local cfg = _G.AIAnalyzer.Config
-    local AIClient = _G.AIAnalyzer.AIClient
-    
-    if cfg then
-        cfg:switchSession(session.id)
-        
-        -- 清除 AIClient 的历史，下次发送消息时会从 Config 同步
-        if AIClient then
-            AIClient:clearHistory()
-        end
-        
-        self:refreshSessionList()
-        
-        -- 显示当前session的消息
-        ui:clearMessages()
-        local messages = cfg:getMessages()
-        for _, msg in ipairs(messages) do
-            ui:addMessage(msg.content, msg.role == "user")
-        end
-    end
-end
-
-function App:deleteSession(session)
-    local ui = _G.AIAnalyzer.UI
-    local cfg = _G.AIAnalyzer.Config
-    
-    if cfg then
-        cfg:deleteSession(session.id)
-        self:refreshSessionList()
-        
-        -- 如果删除的是当前session，显示新的空session
-        if not cfg.CurrentSession then
-            cfg:createSession()
-            ui:clearMessages()
-            self:refreshSessionList()
-        end
-    end
-end
-
-function App:refreshSessionList()
-    local ui = _G.AIAnalyzer.UI
-    local cfg = _G.AIAnalyzer.Config
-    
-    if cfg then
-        local sessions = cfg:getSessionList()
-        local currentId = cfg.CurrentSession and cfg.CurrentSession.id
-        
-        ui:refreshSessionList(
-            sessions,
-            function(s) self:switchSession(s) end,
-            function(s) self:deleteSession(s) end,
-            currentId
-        )
-    end
-end
-
--- 清空当前session
-function App:clearCurrentSession()
-    local ui = _G.AIAnalyzer.UI
-    local cfg = _G.AIAnalyzer.Config
-    
-    if cfg then
-        cfg:clearCurrentSession()
-        ui:clearMessages()
-        ui:addMessage("✅ 当前对话已清空", false)
-    end
-end
-
--- 导出历史
-function App:exportHistory()
-    local ui = _G.AIAnalyzer.UI
-    local cfg = _G.AIAnalyzer.Config
-    local HttpService = game:GetService("HttpService")
-    
-    if not cfg or not cfg.CurrentSession then
-        ui:addMessage("⚠️ 暂无对话可导出", false)
-        return
-    end
-    
-    local messages = cfg:getMessages()
-    if #messages == 0 then
-        ui:addMessage("⚠️ 当前对话为空", false)
-        return
-    end
-    
-    local json = HttpService:JSONEncode({
-        title = cfg.CurrentSession.title,
-        messages = messages
-    })
-    
-    local success, result = saveScript("session_export", json)
-    
-    if success then
-        ui:addMessage("✅ 对话已导出: " .. result, false)
-    else
-        if setclipboard then
-            setclipboard(json)
-            ui:addMessage("✅ 对话已复制到剪贴板", false)
-        else
-            ui:addMessage("❌ 导出失败: " .. tostring(result), false)
-        end
-    end
-end
-
--- AI交互
 function App:sendToAI(query)
     local ui = _G.AIAnalyzer.UI
     local AIClient = _G.AIAnalyzer.AIClient
@@ -866,10 +580,6 @@ function App:sendToAI(query)
         ui:showView("settings")
         return
     end
-    
-    -- 保存用户消息
-    Config:addMessage("user", query)
-    self:refreshSessionList()
     
     local Scanner = _G.AIAnalyzer.Scanner
     local context = Scanner and Scanner:toAIContext(50) or {}
@@ -893,10 +603,6 @@ function App:sendToAI(query)
         
         if result then
             ui:addMessage(result.content, false)
-            Config:addMessage("assistant", result.content)
-            self:refreshSessionList()
-            
-            -- 更新Token统计
             if result.usage then
                 ui:updateTokenDisplay(result.usage)
             end
@@ -922,7 +628,6 @@ function App:scanResources()
         local results = Scanner:scan()
         local stats = Scanner:getStats()
         
-        -- 清空资源数据（保持与 ui.lua 结构一致）
         ui.allResources = {
             all = {},
             remotes = {},
@@ -933,7 +638,6 @@ function App:scanResources()
         }
         ui:clearResourceList()
         
-        -- 添加资源到分类
         for _, remote in ipairs(results.remotes) do
             ui:addResourceToCategory(remote.name, remote.className, remote.path, function()
                 self:analyzeResource(remote)
@@ -962,12 +666,11 @@ function App:analyzeResource(resource)
     local ui = _G.AIAnalyzer.UI
     local Reader = _G.AIAnalyzer.Reader
     
-    -- 显示弹窗让用户选择操作
     ui:showResourceDialog(resource, {
         analyze = function()
             ui:showView("chat")
             local prompt = string.format(
-                "请分析这个游戏资源：\n名称: %s\n类型: %s\n路径: %s\n\n请解释它的用途和使用方法，如果可能给出示例代码。",
+                "请分析这个游戏资源：\n名称: %s\n类型: %s\n路径: %s\n\n请解释它的用途和使用方法。",
                 resource.name, resource.className, resource.path
             )
             ui.inputBox.Text = prompt
@@ -976,14 +679,13 @@ function App:analyzeResource(resource)
         generateCode = function()
             ui:showView("chat")
             local prompt = string.format(
-                "请为这个 Remote 生成调用代码：\n名称: %s\n类型: %s\n路径: %s\n\n请给出完整的调用示例代码，包括参数说明。",
+                "请为这个 Remote 生成调用代码：\n名称: %s\n类型: %s\n路径: %s",
                 resource.name, resource.className, resource.path
             )
             ui.inputBox.Text = prompt
             self:sendMessage()
         end,
         viewSource = function()
-            -- 使用实例引用查看源码
             local instance = resource.instance
             if instance and Reader and Reader:canDecompile() then
                 local source = Reader:readScript(instance)
@@ -1007,12 +709,9 @@ function App:analyzeScript(scriptInfo)
     local ui = _G.AIAnalyzer.UI
     local Reader = _G.AIAnalyzer.Reader
     
-    -- 显示弹窗让用户选择操作
     ui:showResourceDialog(scriptInfo, {
         analyze = function()
             ui:showView("chat")
-            
-            -- 使用实例引用读取源码
             local instance = scriptInfo.instance
             if instance and Reader and Reader:canDecompile() then
                 local scriptData = Reader:readScript(instance)
@@ -1027,9 +726,8 @@ function App:analyzeScript(scriptInfo)
                     return
                 end
             end
-            
             local prompt = string.format(
-                "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s\n\n（无法读取源码，可能需要支持反编译的执行器）",
+                "请分析这个脚本资源：\n名称: %s\n类型: %s\n路径: %s",
                 scriptInfo.name, scriptInfo.className, scriptInfo.path
             )
             ui.inputBox.Text = prompt
@@ -1050,26 +748,7 @@ function App:analyzeScript(scriptInfo)
                     return
                 end
             end
-            ui:addMessage("⚠️ 无法读取该脚本源码，可能需要支持反编译的执行器", false)
-        end,
-        sendToAI = function()
-            -- 发送源码给AI分析
-            ui:showView("chat")
-            local instance = scriptInfo.instance
-            if instance and Reader and Reader:canDecompile() then
-                local scriptData = Reader:readScript(instance)
-                if scriptData and scriptData.source then
-                    local prompt = string.format(
-                        "请详细分析这段脚本的功能和逻辑：\n名称: %s\n路径: %s\n\n```lua\n%s\n```\n\n请解释：\n1. 这段代码的主要功能\n2. 关键变量和函数的作用\n3. 可能的用途或调用场景",
-                        scriptData.name, scriptData.path,
-                        scriptData.source:sub(1, 5000)
-                    )
-                    ui.inputBox.Text = prompt
-                    self:sendMessage()
-                    return
-                end
-            end
-            ui:addMessage("⚠️ 无法读取源码", false)
+            ui:addMessage("⚠️ 无法读取该脚本源码", false)
         end
     })
 end
@@ -1131,7 +810,6 @@ function App:switchProvider(providerName)
     
     Config:switchProvider(providerName)
     
-    -- 更新所有提供商按钮样式
     for key, btn in pairs(ui.providerButtons) do
         if key == providerName then
             btn.BackgroundColor3 = ui.Theme.accent
@@ -1144,7 +822,6 @@ function App:switchProvider(providerName)
         end
     end
     
-    -- 更新模型下拉框
     if ui.updateModelDropdown then
         ui:updateModelDropdown(providerName)
     end

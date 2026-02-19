@@ -1,5 +1,4 @@
--- AI客户端：支持DeepSeek和OpenAI，支持工具调用和上下文压缩
-
+-- AI客户端：支持DeepSeek和OpenAI，支持工具调用
 local AIClient = {}
 
 local HttpService = game:GetService("HttpService")
@@ -7,99 +6,7 @@ local HttpService = game:GetService("HttpService")
 -- 从全局获取依赖
 local function getDeps()
     local deps = _G.AIAnalyzer or {}
-    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager
-end
-
--- 对话历史
-AIClient.conversationHistory = {}
-AIClient.maxHistoryLength = 50  -- 增加历史长度
-
--- 估算token数
-local function estimateTokens(text)
-    if not text then return 0 end
-    local chineseCount = select(2, text:gsub("[\228-\233]", ""))
-    local otherCount = #text - chineseCount
-    return math.ceil(chineseCount / 1.5 + otherCount / 4)
-end
-
--- 获取当前上下文使用情况
-function AIClient:getContextUsage()
-    local Config, _, _, _, _, ContextManager = getDeps()
-    local provider = Config and Config:getCurrentProvider()
-    local contextWindow = provider and provider.contextWindow or 64000
-    
-    local used = 0
-    for _, msg in ipairs(self.conversationHistory) do
-        used = used + estimateTokens(msg.content or "") + 10
-    end
-    
-    return {
-        used = used,
-        total = contextWindow,
-        percent = used / contextWindow,
-        remaining = contextWindow - used
-    }
-end
-
--- 检查并执行上下文压缩
-function AIClient:checkAndCompact()
-    local Config, _, _, _, _, ContextManager = getDeps()
-    local provider = Config and Config:getCurrentProvider()
-    local ctxConfig = Config and Config.ContextConfig
-    
-    if not ctxConfig or not ctxConfig.autoCompact then
-        return false
-    end
-    
-    local usage = self:getContextUsage()
-    
-    -- 检查是否超过阈值
-    if usage.percent >= (ctxConfig.compressionThreshold or 0.70) then
-        -- 执行压缩
-        self.conversationHistory = ContextManager:compact(
-            self.conversationHistory, 
-            ctxConfig,
-            {}
-        )
-        
-        return true
-    end
-    
-    return false
-end
-
--- 从 Config 同步消息历史
-function AIClient:syncHistoryFromConfig(Config)
-    if not Config then return end
-    
-    local session = Config:getCurrentSession()
-    if not session or not session.messages then return end
-    
-    -- 只同步新消息（增量同步）
-    local existingCount = #self.conversationHistory
-    local configMessages = session.messages
-    
-    -- 如果 Config 消息比本地少，说明可能切换了 session，需要重新同步
-    if #configMessages < existingCount then
-        self.conversationHistory = {}
-        existingCount = 0
-    end
-    
-    -- 只添加新增的消息
-    for i = existingCount + 1, #configMessages do
-        local msg = configMessages[i]
-        if msg.role and msg.content then
-            table.insert(self.conversationHistory, {
-                role = msg.role,
-                content = msg.content
-            })
-        end
-    end
-end
-
--- 清除历史（切换 session 时调用）
-function AIClient:clearHistory()
-    self.conversationHistory = {}
+    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader
 end
 
 -- 创建请求体
@@ -132,9 +39,9 @@ local function createHeaders(provider)
     }
 end
 
--- 发送聊天请求（支持工具调用和自动压缩）
+-- 发送聊天请求（支持工具调用）
 function AIClient:chat(userMessage, systemPrompt, options)
-    local Config, Http, Tools, Scanner, Reader, ContextManager = getDeps()
+    local Config, Http, Tools, Scanner, Reader = getDeps()
     options = options or {}
     
     if not Config then
@@ -151,28 +58,14 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "External HTTP requests not supported"
     end
     
-    -- 从 Config 同步消息历史
-    self:syncHistoryFromConfig(Config)
-    
-    -- 检查最后一条消息是否是当前用户消息，避免重复添加
-    local lastMsg = self.conversationHistory[#self.conversationHistory]
-    if not lastMsg or lastMsg.role ~= "user" or lastMsg.content ~= userMessage then
-        table.insert(self.conversationHistory, {role = "user", content = userMessage})
-    end
-    
-    -- 检查是否需要压缩
-    self:checkAndCompact()
-    
-    -- 准备消息
+    -- 准备消息（不保留历史）
     local messages = {}
     
     if systemPrompt then
         table.insert(messages, {role = "system", content = systemPrompt})
     end
     
-    for _, msg in ipairs(self.conversationHistory) do
-        table.insert(messages, msg)
-    end
+    table.insert(messages, {role = "user", content = userMessage})
     
     -- 获取工具定义
     local tools = Tools and Tools.definitions
@@ -191,10 +84,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
         return nil, "Failed to parse response JSON"
     end
     
-    -- 调试：输出响应结构
     local choice = response.data.choices and response.data.choices[1]
     if not choice then
-        -- 输出原始响应用于调试
         warn("[AI CLI] No choices in response. Raw response: " .. HttpService:JSONEncode(response.data):sub(1, 500))
         return nil, "No choices in response"
     end
@@ -267,22 +158,16 @@ function AIClient:chat(userMessage, systemPrompt, options)
     -- 获取内容：优先使用 content，其次使用 reasoning_content
     local content = assistantMessage.content
     if not content or content == "" then
-        -- 某些模型使用 reasoning_content 字段（如 DeepSeek-R1）
         content = assistantMessage.reasoning_content
     end
     
     if not content or content == "" then
-        -- 调试：输出 assistantMessage 内容
         warn("[AI CLI] No content in response. assistantMessage: " .. HttpService:JSONEncode(assistantMessage or {}):sub(1, 500))
-        -- 检查是否有 finish_reason
         if choice.finish_reason then
             warn("[AI CLI] finish_reason: " .. tostring(choice.finish_reason))
         end
         return nil, "No content in response (finish_reason: " .. tostring(choice.finish_reason) .. ")"
     end
-    
-    -- 注意：不在这里添加助手消息到 conversationHistory
-    -- 由调用方通过 Config:addMessage 添加，下次 syncHistoryFromConfig 会同步
     
     return {
         content = content,
@@ -292,11 +177,10 @@ function AIClient:chat(userMessage, systemPrompt, options)
     }
 end
 
--- 分析游戏资源（优化版：按需传递上下文）
+-- 分析游戏资源
 function AIClient:analyzeResources(query, resourceContext, options)
     local Config = getDeps()
     
-    -- 精简的系统提示
     local systemPrompt = [[You are a Roblox game analysis expert. You have access to tools to search and read game resources.
 
 IMPORTANT: Use tools to get information when needed, don't guess.
@@ -309,7 +193,6 @@ Available tools:
 
 Be concise and practical. Generate working Lua code when asked.]]
 
-    -- 只传递摘要信息，不传递完整资源列表
     local contextSummary = ""
     if resourceContext then
         contextSummary = string.format(
@@ -325,55 +208,6 @@ Be concise and practical. Generate working Lua code when asked.]]
         userMessage = contextSummary .. "\n\n" .. query
     else
         userMessage = query
-    end
-    
-    return self:chat(userMessage, systemPrompt, options)
-end
-
--- 分析脚本源码
-function AIClient:analyzeScripts(query, scriptsContext, options)
-    local systemPrompt = [[You are a Roblox Lua code analyst. Analyze scripts and answer questions.
-
-Focus on:
-1. What the script does
-2. Key functions and variables
-3. RemoteEvent/RemoteFunction usage
-4. Security considerations
-
-Be concise.]]
-
-    local scriptsInfo = ""
-    for _, script in ipairs(scriptsContext.scripts or {}) do
-        scriptsInfo = scriptsInfo .. string.format(
-            "\n--- %s (%s) ---\nPath: %s\n\n%s\n",
-            script.name, script.type, script.path,
-            (script.source or "[No source]"):sub(1, 3000)
-        )
-    end
-    
-    local userMessage = string.format(
-        "Scripts:\n%s\n\nQuestion: %s",
-        scriptsInfo, query
-    )
-    
-    return self:chat(userMessage, systemPrompt, options)
-end
-
--- 生成代码
-function AIClient:generateCode(prompt, context, options)
-    local Config = getDeps()
-    
-    local systemPrompt = [[You are a Roblox Lua code generator. Generate clean, executable code.
-
-Rules:
-- Wrap code in ```lua blocks
-- Use pcall for error handling
-- Include brief comments
-- Use executor functions when needed (getgenv, etc.)]]
-
-    local userMessage = prompt
-    if context then
-        userMessage = "Context: " .. HttpService:JSONEncode(context):sub(1, 2000) .. "\n\nTask: " .. prompt
     end
     
     return self:chat(userMessage, systemPrompt, options)
