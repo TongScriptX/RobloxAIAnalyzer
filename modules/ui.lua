@@ -1311,7 +1311,10 @@ function UI:createSettingsView()
     
     -- 获取当前运行模式
     local Tools = _G.AIAnalyzer and _G.AIAnalyzer.Tools
-    local currentRunMode = Tools and Tools:getRunMode and Tools:getRunMode() or "default"
+    local currentRunMode = "default"
+    if Tools and Tools.getRunMode then
+        currentRunMode = Tools:getRunMode()
+    end
     local modeLabels = {
         smart = "智能",
         default = "默认", 
@@ -2559,6 +2562,7 @@ function UI:updateTokenDisplay(usage)
         end
         
         self.tokenStatsLabel.Text = statsText
+    end
 end
 
 -- 获取Token统计
