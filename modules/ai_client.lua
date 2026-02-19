@@ -407,6 +407,7 @@ Available tools:
 - read_script: Read script source code
 - get_remote_info: Get Remote details
 - list_resources: List all resources of a type
+- search_in_script: Search text/code inside scripts (use to find specific functions, variables, strings)
 
 Be concise. Generate working Lua code when asked. Respond in Chinese.]]
 

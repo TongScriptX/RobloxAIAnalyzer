@@ -82,6 +82,31 @@ Tools.definitions = {
                 required = {"resource_type"}
             }
         }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "search_in_script",
+            description = "在脚本源码中搜索指定的文本或关键词。返回包含该文本的脚本列表及上下文。",
+            parameters = {
+                type = "object",
+                properties = {
+                    text = {
+                        type = "string",
+                        description = "要搜索的文本或关键词"
+                    },
+                    script_name = {
+                        type = "string",
+                        description = "可选：限定在特定脚本中搜索"
+                    },
+                    context_lines = {
+                        type = "integer",
+                        description = "上下文行数，默认2"
+                    }
+                },
+                required = {"text"}
+            }
+        }
     }
 }
 
@@ -98,6 +123,8 @@ function Tools:execute(toolName, args, context)
         return self:getRemoteInfo(args, Scanner)
     elseif toolName == "list_resources" then
         return self:listResources(args, Scanner)
+    elseif toolName == "search_in_script" then
+        return self:searchInScript(args, Reader, Scanner)
     end
     
     return {error = "Unknown tool: " .. toolName}
@@ -256,6 +283,97 @@ function Tools:listResources(args, Scanner)
     return result
 end
 
+-- 在脚本中搜索文本
+function Tools:searchInScript(args, Reader, Scanner)
+    local searchText = args.text
+    if not searchText or searchText == "" then
+        return {error = "Search text required"}
+    end
+    
+    if not Reader or not Reader:canDecompile() then
+        return {error = "Script reading not available (need decompile support)"}
+    end
+    
+    if not Scanner or not Scanner.cache then
+        return {error = "Scanner not initialized"}
+    end
+    
+    local scriptName = args.script_name
+    local contextLines = args.context_lines or 2
+    local searchLower = searchText:lower()
+    
+    local results = {}
+    local totalMatches = 0
+    
+    -- 获取所有脚本
+    local scripts = Reader:getAllScripts()
+    
+    for _, script in ipairs(scripts) do
+        -- 如果指定了脚本名，只搜索匹配的脚本
+        if scriptName and not script.Name:lower():find(scriptName:lower(), 1, true) then
+            -- 跳过不匹配的脚本
+        else
+            local data = Reader:readScript(script)
+            if data and data.source then
+                local matches = {}
+                local lines = {}
+                local lineNum = 0
+                
+                -- 按行分割源码
+                for line in data.source:gmatch("[^\n]+") do
+                    lineNum = lineNum + 1
+                    lines[lineNum] = line
+                end
+                
+                -- 搜索每一行
+                for i = 1, lineNum do
+                    local line = lines[i]
+                    if line and line:lower():find(searchLower, 1, true) then
+                        totalMatches = totalMatches + 1
+                        
+                        -- 提取上下文
+                        local context = {}
+                        for j = math.max(1, i - contextLines), math.min(lineNum, i + contextLines) do
+                            table.insert(context, {
+                                lineNum = j,
+                                text = lines[j] or "",
+                                isMatch = j == i
+                            })
+                        end
+                        
+                        table.insert(matches, {
+                            lineNum = i,
+                            line = line,
+                            context = context
+                        })
+                    end
+                end
+                
+                if #matches > 0 then
+                    table.insert(results, {
+                        name = data.name,
+                        type = data.className,
+                        path = data.path,
+                        matchCount = #matches,
+                        matches = #matches > 3 and {matches[1], matches[2], matches[3]} or matches,
+                        truncated = #matches > 3
+                    })
+                end
+            end
+        end
+        
+        -- 限制结果数量
+        if #results >= 10 then break end
+    end
+    
+    return {
+        searchText = searchText,
+        totalMatches = totalMatches,
+        scriptCount = #results,
+        results = results
+    }
+end
+
 -- 生成Remote调用示例
 function Tools:generateRemoteExample(remote)
     local varName = remote.name:gsub("%s+", "_"):gsub("[^%w_]", "")
@@ -282,7 +400,22 @@ function Tools:formatResult(result)
     -- 简洁格式化
     local parts = {}
     
-    if result.results then
+    if result.results and result.searchText then
+        -- search_in_script 结果
+        parts[#parts + 1] = string.format("在脚本中搜索 '%s' 找到 %d 处匹配 (共 %d 个脚本):", 
+            result.searchText, result.totalMatches, result.scriptCount)
+        for i, script in ipairs(result.results) do
+            parts[#parts + 1] = string.format("\n📁 %s [%s] - %d 处匹配", 
+                script.name, script.type, script.matchCount)
+            for _, match in ipairs(script.matches) do
+                parts[#parts + 1] = string.format("  第 %d 行: %s", 
+                    match.lineNum, match.line:sub(1, 80))
+            end
+            if script.truncated then
+                parts[#parts + 1] = "  ... 还有更多匹配"
+            end
+        end
+    elseif result.results then
         parts[#parts + 1] = string.format("Found %d results:", result.count)
         for i, r in ipairs(result.results) do
             if i > 10 then

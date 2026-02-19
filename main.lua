@@ -650,6 +650,15 @@ function App:sendToAI(query)
     end
     
     local Scanner = _G.AIAnalyzer.Scanner
+    
+    -- 检查是否需要自动扫描
+    local needsScan = not Scanner or not Scanner.cache or not Scanner.cache.objects or #Scanner.cache.objects == 0
+    
+    if needsScan then
+        ui:addMessage("🔄 首次对话，正在自动扫描游戏资源...", false)
+        self:scanResources()
+    end
+    
     local context = Scanner and Scanner:toAIContext(50) or {}
     
     -- 显示加载动画
