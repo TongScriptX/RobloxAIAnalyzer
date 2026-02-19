@@ -1755,6 +1755,19 @@ function UI:refreshResourceList()
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
+    -- 清除旧的虚拟列表条目
+    local vl = self.virtualList
+    if vl and vl.entries then
+        for _, entry in ipairs(vl.entries) do
+            if entry and entry.Parent then
+                entry:Destroy()
+            end
+        end
+        vl.entries = {}
+        vl.flattenedTree = {}
+        vl.totalNodes = 0
+    end
+    
     -- 类型视图单独处理
     if self.currentResourceTab == "types" then
         self:renderTypesView(Scanner)
@@ -2113,12 +2126,20 @@ end
 
 -- 更新虚拟条目内容
 function UI:updateVirtualEntry(entry, node, depth, index)
+    -- 防护检查
+    if not entry or not entry.Parent then return end
+    
     local vl = self.virtualList
     local expandBtn = entry:FindFirstChild("Expand")
     local icon = entry:FindFirstChild("Icon")
     local name = entry:FindFirstChild("Name")
     local class = entry:FindFirstChild("Class")
     local clickArea = entry:FindFirstChild("ClickArea")
+    
+    -- 如果子元素不存在，跳过
+    if not expandBtn or not icon or not name or not class then
+        return
+    end
     
     -- 缩进
     local indent = depth * 16
