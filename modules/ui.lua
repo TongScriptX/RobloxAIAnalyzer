@@ -1805,37 +1805,36 @@ function UI:refreshResourceList()
     self:updateVirtualList()
 end
 
--- 构建节点树（懒加载版本：只构建顶层服务节点）
+-- 构建节点树（即时版本：直接使用游戏服务，不遍历缓存）
 function UI:buildNodeTree(resources)
     local vl = self.virtualList
     vl.nodeCache = {}
-    vl.allResources = resources  -- 保存原始资源引用
     
-    -- 只构建顶层服务节点（懒加载）
+    -- 获取Scanner配置的服务列表
+    local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
+    local services = Scanner and Scanner.config and Scanner.config.services or {}
+    
+    -- 直接从游戏服务创建节点（不遍历资源缓存）
     local serviceNodes = {}
     
-    -- 统计每个服务的对象数量
-    local serviceCounts = {}
-    for _, obj in ipairs(resources) do
-        local path = obj.path or ""
-        local serviceName = path:match("^([^.]+)")
-        if serviceName then
-            serviceCounts[serviceName] = (serviceCounts[serviceName] or 0) + 1
+    for _, serviceInfo in ipairs(services) do
+        local serviceName = serviceInfo.name
+        local service = serviceInfo.service
+        
+        if service then
+            local childCount = #service:GetChildren()
+            table.insert(serviceNodes, {
+                name = serviceName,
+                className = "Service",
+                isFolder = true,
+                children = nil,
+                childrenLoaded = false,
+                depth = 0,
+                count = childCount,
+                path = serviceName,
+                instance = service
+            })
         end
-    end
-    
-    -- 创建服务节点
-    for serviceName, count in pairs(serviceCounts) do
-        table.insert(serviceNodes, {
-            name = serviceName,
-            className = "Service",
-            isFolder = true,
-            children = nil,  -- 懒加载：展开时才填充
-            childrenLoaded = false,
-            depth = 0,
-            count = count,
-            path = serviceName
-        })
     end
     
     -- 排序
@@ -1847,70 +1846,48 @@ function UI:buildNodeTree(resources)
     vl.nodeCache = serviceNodes
 end
 
--- 懒加载子节点
+-- 懒加载子节点（直接从游戏实例获取）
 function UI:loadNodeChildren(node)
     if node.childrenLoaded then return end
-    
-    local vl = self.virtualList
-    local resources = vl.allResources
-    if not resources then return end
     
     node.children = {}
     node.childrenLoaded = true
     
-    -- 筛选属于该路径的对象
-    local nodePath = node.path
-    local childCounts = {}
-    local childObjects = {}
+    local instance = node.instance
+    if not instance then return end
     
-    for _, obj in ipairs(resources) do
-        local path = obj.path or ""
-        -- 检查是否属于该节点
-        if path:sub(1, #nodePath) == nodePath then
-            local remaining = path:sub(#nodePath + 2)  -- 去掉前缀和点
-            if remaining and remaining ~= "" then
-                local nextPart = remaining:match("^([^.]+)")
-                if nextPart then
-                    if not childCounts[nextPart] then
-                        childCounts[nextPart] = 0
-                        childObjects[nextPart] = {}
-                    end
-                    childCounts[nextPart] = childCounts[nextPart] + 1
-                    table.insert(childObjects[nextPart], obj)
-                end
-            end
+    -- 直接从游戏实例获取子对象
+    local children = instance:GetChildren()
+    
+    -- 按名称分组
+    local nameGroups = {}
+    for _, child in ipairs(children) do
+        local name = child.Name
+        if not nameGroups[name] then
+            nameGroups[name] = {}
         end
+        table.insert(nameGroups[name], child)
     end
     
     -- 创建子节点
-    for childName, count in pairs(childCounts) do
-        local isFolder = count > 1 or #childObjects[childName] > 1
+    for childName, group in pairs(nameGroups) do
+        local childCount = #group
+        local firstChild = group[1]
+        local grandChildren = #firstChild:GetChildren()
         
-        if isFolder then
-            node.children[childName] = {
-                name = childName,
-                className = "Folder",
-                isFolder = true,
-                children = nil,
-                childrenLoaded = false,
-                depth = node.depth + 1,
-                count = count,
-                path = nodePath .. "." .. childName,
-                parent = node
-            }
-        else
-            local obj = childObjects[childName][1]
-            node.children[childName] = {
-                name = childName,
-                className = obj.className,
-                isFolder = false,
-                instance = obj.instance,
-                path = obj.path,
-                depth = node.depth + 1,
-                parent = node,
-                objData = obj
-            }
-        end
+        node.children[childName] = {
+            name = childName,
+            className = childCount > 1 and ("x" .. childCount) or firstChild.ClassName,
+            isFolder = grandChildren > 0 or childCount > 1,
+            children = nil,
+            childrenLoaded = false,
+            depth = (node.depth or 0) + 1,
+            count = grandChildren > 0 and grandChildren or childCount,
+            path = node.path .. "." .. childName,
+            instance = firstChild,
+            parent = node,
+            siblings = childCount > 1 and group or nil
+        }
     end
 end
 
@@ -2191,9 +2168,16 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     
     -- 点击事件
     clickArea.MouseButton1Click:Connect(function()
-        if not node.isFolder and node.objData then
+        if node.instance then
+            -- 创建资源信息发送给AI
+            local objData = {
+                name = node.name,
+                className = node.className,
+                path = node.path,
+                instance = node.instance
+            }
             if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
-                self.resourceCallbacks.sendToAI(node.objData)
+                self.resourceCallbacks.sendToAI(objData)
             end
         end
     end)
