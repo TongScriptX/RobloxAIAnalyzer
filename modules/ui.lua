@@ -1750,6 +1750,21 @@ function UI:refreshResourceList()
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
+    -- 辅助函数：从Scanner对象创建资源项
+    local function makeResourceItem(obj)
+        return {
+            name = obj.name,
+            className = obj.className,
+            path = obj.path,
+            instance = obj.instance,
+            onClick = function()
+                if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
+                    self.resourceCallbacks.sendToAI(obj)
+                end
+            end
+        }
+    end
+    
     -- 根据当前标签获取资源
     local resources = {}
     
@@ -1762,32 +1777,39 @@ function UI:refreshResourceList()
         if searchQuery ~= "" and Scanner then
             local result = Scanner:search(searchQuery, {limit = 200})
             for _, r in ipairs(result.results) do
-                table.insert(resources, {
-                    name = r.name,
-                    className = r.className,
-                    path = r.path,
-                    onClick = function()
-                        if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
-                            self.resourceCallbacks.sendToAI(r)
-                        end
-                    end
-                })
+                table.insert(resources, makeResourceItem(r))
             end
         end
     elseif self.currentResourceTab == "remotes" then
-        resources = self.allResources["remotes"] or {}
-    elseif self.currentResourceTab == "scripts" then
-        -- 合并所有脚本类型
-        local allScripts = {}
-        for _, key in ipairs({"localscripts", "serverscripts", "modulescripts"}) do
-            for _, res in ipairs(self.allResources[key] or {}) do
-                table.insert(allScripts, res)
+        -- 从typeIndex获取所有Remote类型
+        if Scanner and Scanner.cache.typeIndex then
+            for typeName, objects in pairs(Scanner.cache.typeIndex) do
+                if typeName:find("Remote") then
+                    for _, obj in ipairs(objects) do
+                        table.insert(resources, makeResourceItem(obj))
+                    end
+                end
             end
         end
-        resources = allScripts
+    elseif self.currentResourceTab == "scripts" then
+        -- 从typeIndex获取所有Script类型
+        if Scanner and Scanner.cache.typeIndex then
+            for _, typeName in ipairs({"LocalScript", "Script", "ModuleScript"}) do
+                local objects = Scanner.cache.typeIndex[typeName]
+                if objects then
+                    for _, obj in ipairs(objects) do
+                        table.insert(resources, makeResourceItem(obj))
+                    end
+                end
+            end
+        end
     else
-        -- 全部
-        resources = self.allResources["all"] or {}
+        -- 全部：从cache.objects获取
+        if Scanner and Scanner.cache.objects then
+            for _, obj in ipairs(Scanner.cache.objects) do
+                table.insert(resources, makeResourceItem(obj))
+            end
+        end
     end
     
     -- 如果有搜索词，过滤
