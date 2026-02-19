@@ -2464,7 +2464,9 @@ function UI:addResourceItem(name, className, path, onClick, showFullPath)
         pathText.TextTruncate = Enum.TextTruncate.AtEnd
     end
     
-    item.MouseButton1Click:Connect(onClick)
+    if type(onClick) == "function" then
+        item.MouseButton1Click:Connect(onClick)
+    end
     
     item.MouseEnter:Connect(function()
         TweenService:Create(item, TweenInfo.new(0.15), {BackgroundColor3 = self.Theme.accent}):Play()
