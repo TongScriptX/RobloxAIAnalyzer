@@ -4,7 +4,7 @@ local Scanner = {}
 -- 扫描配置
 Scanner.config = {
     maxDepth = 25,
-    maxObjects = 20000,  -- 增加上限
+    maxObjects = math.huge,  -- 无限制
     includeNilInstances = true,
     services = {
         {name = "Workspace", service = game:GetService("Workspace")},
@@ -212,8 +212,8 @@ local function scanNilInstances(results, counters, seenInstances)
     end
 end
 
--- 执行完整扫描
-function Scanner:scan()
+-- 执行完整扫描（支持增量回调）
+function Scanner:scan(onProgress)
     local results = {
         all = {},
         focused = {},
@@ -229,6 +229,38 @@ function Scanner:scan()
     local counters = { total = 0 }
     local seenInstances = {}  -- 去重表，使用实例引用
     
+    -- 辅助函数：更新缓存并触发进度回调
+    local function updateCacheAndNotify(serviceName)
+        self.cache = {
+            objects = results.all,
+            remotes = results.remotes,
+            scripts = results.scripts,
+            focused = results.focused,
+            services = results.services,
+            typeIndex = results.typeIndex,
+            nameIndex = results.nameIndex,
+            typeCounts = results.typeCounts,
+            lastScanTime = os.time(),
+            isValid = true,
+            stats = {
+                totalTypes = 0,
+                typeCounts = results.typeCounts
+            }
+        }
+        
+        -- 统计类型数量
+        local typeCount = 0
+        for _ in pairs(results.typeIndex) do
+            typeCount = typeCount + 1
+        end
+        self.cache.stats.totalTypes = typeCount
+        
+        -- 触发进度回调
+        if onProgress then
+            onProgress(#results.all, typeCount, serviceName)
+        end
+    end
+    
     -- 扫描各个服务
     for _, serviceInfo in ipairs(self.config.services) do
         local serviceName = serviceInfo.name
@@ -237,34 +269,16 @@ function Scanner:scan()
         if service then
             table.insert(results.services, serviceName)
             scanInstance(service, serviceName, 0, results, counters, seenInstances)
+            -- 每扫描完一个服务就更新缓存并通知
+            updateCacheAndNotify(serviceName)
         end
     end
     
     -- 扫描nil instances
     scanNilInstances(results, counters, seenInstances)
     
-    -- 更新缓存
-    self.cache = {
-        objects = results.all,
-        remotes = results.remotes,
-        scripts = results.scripts,
-        focused = results.focused,
-        services = results.services,
-        typeIndex = results.typeIndex,
-        nameIndex = results.nameIndex,
-        typeCounts = results.typeCounts,
-        lastScanTime = os.time(),
-        isValid = true,
-        stats = {
-            totalTypes = 0,
-            typeCounts = results.typeCounts
-        }
-    }
-    
-    -- 统计类型数量
-    for _ in pairs(results.typeIndex) do
-        self.cache.stats.totalTypes = self.cache.stats.totalTypes + 1
-    end
+    -- 最终更新
+    updateCacheAndNotify("nil instances")
     
     print(string.format("[AI CLI] 扫描完成: %d 个对象, %d 种类型", #results.all, self.cache.stats.totalTypes))
     

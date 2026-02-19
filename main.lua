@@ -908,34 +908,25 @@ function App:scanResources()
     ui:addMessage("🔍 正在扫描游戏资源...", false)
     
     spawn(function()
-        local results = Scanner:scan()
+        -- 增量扫描回调
+        local lastCount = 0
+        local results = Scanner:scan(function(count, typeCount, serviceName)
+            -- 每扫描完一个服务就更新UI
+            if count > lastCount then
+                ui:refreshResourceList()
+                lastCount = count
+            end
+        end)
+        
         local stats = Scanner:getStats()
         
-        ui.allResources = {
-            all = {},
-            remotes = {},
-            localscripts = {},
-            serverscripts = {},
-            modulescripts = {},
-            others = {}
-        }
-        ui:clearResourceList()
-        
-        for _, remote in ipairs(results.remotes) do
-            ui:addResourceToCategory(remote.name, remote.className, remote.path, function()
-                self:analyzeResource(remote)
-            end)
-        end
-        
-        for _, script in ipairs(results.scripts) do
-            ui:addResourceToCategory(script.name, script.className, script.path, function()
-                self:analyzeScript(script)
-            end)
-        end
+        -- 最终刷新
+        ui:refreshResourceList()
         
         ui:addMessage(string.format(
-            "✅ 扫描完成\n• 总对象: %d\n• Remote: %d\n• Script: %d",
-            stats.totalObjects, stats.remoteCount, stats.scriptCount
+            "✅ 扫描完成\n• 总对象: %d\n• 类型: %d",
+            stats.totalObjects or #results.all,
+            stats.totalTypes or 0
         ), false)
     end)
 end

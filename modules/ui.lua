@@ -1738,17 +1738,23 @@ function UI:buildResourceTree(resources)
     return tree
 end
 
--- 刷新资源列表显示
+-- 刷新资源列表显示（支持增量加载）
 function UI:refreshResourceList()
-    -- 清空当前列表
-    for _, child in pairs(self.resourceList:GetChildren()) do
-        if child:IsA("GuiObject") then
-            child:Destroy()
-        end
-    end
-    
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
+    
+    -- 初始化增量加载状态
+    if not self.resourceLoadState then
+        self.resourceLoadState = {
+            lastCount = 0,
+            loading = false
+        }
+    end
+    
+    -- 如果正在加载，跳过
+    if self.resourceLoadState.loading then
+        return
+    end
     
     -- 辅助函数：从Scanner对象创建资源项
     local function makeResourceItem(obj)
@@ -1765,89 +1771,123 @@ function UI:refreshResourceList()
         }
     end
     
-    -- 根据当前标签获取资源
-    local resources = {}
+    -- 获取当前标签的资源
+    local function getResources()
+        local resources = {}
+        
+        if self.currentResourceTab == "types" then
+            return nil  -- 类型视图单独处理
+        elseif self.currentResourceTab == "search" then
+            if searchQuery ~= "" and Scanner then
+                local result = Scanner:search(searchQuery, {limit = 200})
+                for _, r in ipairs(result.results) do
+                    table.insert(resources, makeResourceItem(r))
+                end
+            end
+        elseif self.currentResourceTab == "remotes" then
+            if Scanner and Scanner.cache.typeIndex then
+                for typeName, objects in pairs(Scanner.cache.typeIndex) do
+                    if typeName:find("Remote") then
+                        for _, obj in ipairs(objects) do
+                            table.insert(resources, makeResourceItem(obj))
+                        end
+                    end
+                end
+            end
+        elseif self.currentResourceTab == "scripts" then
+            if Scanner and Scanner.cache.typeIndex then
+                for _, typeName in ipairs({"LocalScript", "Script", "ModuleScript"}) do
+                    local objects = Scanner.cache.typeIndex[typeName]
+                    if objects then
+                        for _, obj in ipairs(objects) do
+                            table.insert(resources, makeResourceItem(obj))
+                        end
+                    end
+                end
+            end
+        else
+            -- 全部
+            if Scanner and Scanner.cache.objects then
+                for _, obj in ipairs(Scanner.cache.objects) do
+                    table.insert(resources, makeResourceItem(obj))
+                end
+            end
+        end
+        return resources
+    end
     
+    -- 类型视图单独处理
     if self.currentResourceTab == "types" then
-        -- 按类型显示
+        -- 清空并渲染类型视图
+        for _, child in pairs(self.resourceList:GetChildren()) do
+            if child:IsA("GuiObject") then
+                child:Destroy()
+            end
+        end
         self:renderTypesView(Scanner)
         return
-    elseif self.currentResourceTab == "search" then
-        -- 搜索模式
-        if searchQuery ~= "" and Scanner then
-            local result = Scanner:search(searchQuery, {limit = 200})
-            for _, r in ipairs(result.results) do
-                table.insert(resources, makeResourceItem(r))
-            end
-        end
-    elseif self.currentResourceTab == "remotes" then
-        -- 从typeIndex获取所有Remote类型
-        if Scanner and Scanner.cache.typeIndex then
-            for typeName, objects in pairs(Scanner.cache.typeIndex) do
-                if typeName:find("Remote") then
-                    for _, obj in ipairs(objects) do
-                        table.insert(resources, makeResourceItem(obj))
-                    end
-                end
-            end
-        end
-    elseif self.currentResourceTab == "scripts" then
-        -- 从typeIndex获取所有Script类型
-        if Scanner and Scanner.cache.typeIndex then
-            for _, typeName in ipairs({"LocalScript", "Script", "ModuleScript"}) do
-                local objects = Scanner.cache.typeIndex[typeName]
-                if objects then
-                    for _, obj in ipairs(objects) do
-                        table.insert(resources, makeResourceItem(obj))
-                    end
-                end
-            end
-        end
-    else
-        -- 全部：从cache.objects获取
-        if Scanner and Scanner.cache.objects then
-            for _, obj in ipairs(Scanner.cache.objects) do
-                table.insert(resources, makeResourceItem(obj))
+    end
+    
+    -- 检查是否需要重新加载（数量变化或搜索词变化）
+    local resources = getResources()
+    if not resources then return end
+    
+    local currentCount = #resources
+    
+    -- 如果搜索词变化，需要完全重新加载
+    if searchQuery ~= (self.lastSearchQuery or "") then
+        self.lastSearchQuery = searchQuery
+        self.resourceLoadState.lastCount = 0
+        -- 清空列表
+        for _, child in pairs(self.resourceList:GetChildren()) do
+            if child:IsA("GuiObject") then
+                child:Destroy()
             end
         end
     end
     
-    -- 如果有搜索词，过滤
-    if searchQuery ~= "" and self.currentResourceTab ~= "search" then
-        local filtered = {}
-        for _, res in ipairs(resources) do
-            if res.name:lower():find(searchQuery, 1, true) or 
-               res.path:lower():find(searchQuery, 1, true) or
-               res.className:lower():find(searchQuery, 1, true) then
-                table.insert(filtered, res)
-            end
+    -- 增量加载：只添加新项目
+    local startIndex = self.resourceLoadState.lastCount + 1
+    if startIndex > currentCount then
+        return  -- 没有新项目
+    end
+    
+    -- 分批加载，每批100个
+    local batchSize = 100
+    local endIndex = math.min(startIndex + batchSize - 1, currentCount)
+    
+    for i = startIndex, endIndex do
+        local res = resources[i]
+        if res then
+            self:addTreeResourceItem(res.name, res.className, res.path, res.onClick, 0)
         end
-        resources = filtered
     end
     
-    -- 限制显示数量
-    local maxDisplay = 500
-    if #resources > maxDisplay then
-        local limited = {}
-        for i = 1, maxDisplay do
-            table.insert(limited, resources[i])
+    self.resourceLoadState.lastCount = endIndex
+    
+    -- 如果还有更多，异步继续加载
+    if endIndex < currentCount then
+        self.resourceLoadState.loading = true
+        spawn(function()
+            wait(0.01)  -- 让出一帧
+            self.resourceLoadState.loading = false
+            self:refreshResourceList()
+        end)
+    end
+end
+
+-- 清空资源列表并重置加载状态
+function UI:clearResourceList()
+    for _, child in pairs(self.resourceList:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child:Destroy()
         end
-        resources = limited
-        
-        -- 显示提示
-        self:addResourceItem("... 还有 " .. (#resources - maxDisplay) .. " 个结果 ...", "", "", nil, false)
     end
-    
-    -- 构建树形结构
-    local tree = self:buildResourceTree(resources)
-    
-    -- 存储展开状态
-    if not self.expandedPaths then
-        self.expandedPaths = {}
-    end
-    
-    -- 渲染树形结构
-    self:renderTreeLevel(tree, 0)
+    self.resourceLoadState = {
+        lastCount = 0,
+        loading = false
+    }
+    self.lastSearchQuery = ""
 end
 
 -- 渲染按类型视图
