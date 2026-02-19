@@ -1755,17 +1755,21 @@ function UI:refreshResourceList()
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
-    -- 清除旧的虚拟列表条目
+    -- 清除旧的虚拟列表条目和状态
     local vl = self.virtualList
-    if vl and vl.entries then
-        for _, entry in ipairs(vl.entries) do
-            if entry and entry.Parent then
-                entry:Destroy()
+    if vl then
+        if vl.entries then
+            for _, entry in ipairs(vl.entries) do
+                if entry and entry.Parent then
+                    entry:Destroy()
+                end
             end
         end
         vl.entries = {}
         vl.flattenedTree = {}
         vl.totalNodes = 0
+        -- 保留展开状态，或重置
+        -- vl.expandedNodes = {}
     end
     
     -- 类型视图单独处理
@@ -1969,10 +1973,14 @@ function UI:flattenNodeTree()
     vl.flattenedTree = {}
     
     local function flatten(nodes, depth)
+        if not nodes then return end
+        
         -- 排序：文件夹在前，然后按名称
         local sorted = {}
-        for _, node in pairs(nodes) do
-            table.insert(sorted, node)
+        for key, node in pairs(nodes) do
+            if type(key) == "number" or type(key) == "string" then
+                table.insert(sorted, node)
+            end
         end
         table.sort(sorted, function(a, b)
             if a.isFolder ~= b.isFolder then
@@ -1996,7 +2004,7 @@ function UI:flattenNodeTree()
                 if not node.childrenLoaded then
                     self:loadNodeChildren(node)
                 end
-                if node.children then
+                if node.children and next(node.children) then
                     flatten(node.children, depth + 1)
                 end
             end
@@ -2032,9 +2040,12 @@ function UI:updateVirtualList()
     local viewHeight = self.resourceList.AbsoluteSize.Y
     local entryHeight = vl.entryHeight
     
+    -- 确保viewHeight有效
+    if viewHeight <= 0 then viewHeight = 400 end
+    
     -- 计算可见范围
     local startIndex = math.floor(scrollPos / entryHeight) + 1
-    local visibleCount = math.ceil(viewHeight / entryHeight) + 2 -- 多渲染2个避免闪烁
+    local visibleCount = math.max(20, math.ceil(viewHeight / entryHeight) + 5) -- 至少20个条目
     local endIndex = math.min(startIndex + visibleCount, vl.totalNodes)
     
     -- 确保有足够的条目
@@ -2043,8 +2054,16 @@ function UI:updateVirtualList()
         table.insert(vl.entries, entry)
     end
     
-    -- 更新每个条目
+    -- 隐藏所有条目先
     for i, entry in ipairs(vl.entries) do
+        entry.Visible = false
+    end
+    
+    -- 更新需要的条目
+    for i = 1, visibleCount do
+        local entry = vl.entries[i]
+        if not entry then break end
+        
         local dataIndex = startIndex + i - 1
         local nodeInfo = vl.flattenedTree[dataIndex]
         
@@ -2052,8 +2071,6 @@ function UI:updateVirtualList()
             self:updateVirtualEntry(entry, nodeInfo.node, nodeInfo.depth, dataIndex)
             entry.Visible = true
             entry.Position = UDim2.new(0, 0, 0, (dataIndex - 1) * entryHeight)
-        else
-            entry.Visible = false
         end
     end
 end
@@ -2141,6 +2158,14 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         return
     end
     
+    -- 断开旧的事件连接
+    if entry.connections then
+        for _, conn in ipairs(entry.connections) do
+            if conn then conn:Disconnect() end
+        end
+    end
+    entry.connections = {}
+    
     -- 缩进
     local indent = depth * 16
     expandBtn.Position = UDim2.new(0, indent, 0, 0)
@@ -2155,7 +2180,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
-        expandBtn.MouseButton1Click:Connect(function()
+        local conn = expandBtn.MouseButton1Click:Connect(function()
             -- 懒加载子节点
             if not node.childrenLoaded then
                 self:loadNodeChildren(node)
@@ -2165,6 +2190,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             self:flattenNodeTree()
             self:updateVirtualList()
         end)
+        table.insert(entry.connections, conn)
     else
         expandBtn.Visible = false
     end
@@ -2188,7 +2214,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     class.Text = node.className or ""
     
     -- 点击事件
-    clickArea.MouseButton1Click:Connect(function()
+    local conn2 = clickArea.MouseButton1Click:Connect(function()
         if node.instance then
             -- 创建资源信息发送给AI
             local objData = {
@@ -2202,6 +2228,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             end
         end
     end)
+    table.insert(entry.connections, conn2)
     
     -- 悬停效果
     entry.MouseEnter:Connect(function()
