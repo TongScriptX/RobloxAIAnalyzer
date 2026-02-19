@@ -1849,15 +1849,27 @@ end
 
 -- 递归添加到节点树
 function UI:addToNodeTree(parentNode, obj, path, depth)
+    if not parentNode or not path then return end
+    
     local parts = {}
     for part in path:gmatch("[^.]+") do
         table.insert(parts, part)
     end
     
+    -- 至少需要2个部分（服务名 + 对象名）
+    if #parts < 2 then return end
+    
     -- 跳过已经处理的服务名
     local current = parentNode
+    if not current.children then
+        current.children = {}
+    end
+    
+    -- 遍历中间的文件夹层级
     for i = depth + 1, #parts - 1 do
         local partName = parts[i]
+        if not partName then break end
+        
         if not current.children[partName] then
             current.children[partName] = {
                 name = partName,
@@ -1869,15 +1881,21 @@ function UI:addToNodeTree(parentNode, obj, path, depth)
                 count = 0
             }
         end
+        
+        -- 确保 children 存在
+        if not current.children[partName].children then
+            current.children[partName].children = {}
+        end
+        
         current = current.children[partName]
     end
     
     -- 添加最终对象
     local objName = parts[#parts]
-    if objName then
+    if objName and current and current.children then
         current.children[objName] = {
             name = objName,
-            className = obj.className,
+            className = obj.className or "Unknown",
             isFolder = false,
             instance = obj.instance,
             path = obj.path,
