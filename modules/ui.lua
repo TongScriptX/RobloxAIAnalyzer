@@ -2238,8 +2238,11 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         if not self.entryConnections then self.entryConnections = {} end
         if not self.entryConnections[entryIdx] then self.entryConnections[entryIdx] = {} end
         
+        local connCount = #self.entryConnections[entryIdx]
+        print("[DEBUG] 检查连接: entryIdx=" .. tostring(entryIdx) .. ", nodeKey=" .. tostring(nodeKey) .. ", 现有连接数=" .. tostring(connCount))
+        
         -- 只有当没有连接时才创建新连接
-        if #self.entryConnections[entryIdx] == 0 then
+        if connCount == 0 then
             -- 箭头按钮点击
             local conn1 = expandBtn.MouseButton1Click:Connect(toggleExpand)
             table.insert(self.entryConnections[entryIdx], conn1)
