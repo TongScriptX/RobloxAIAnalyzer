@@ -175,13 +175,22 @@ function AIClient:chat(userMessage, systemPrompt, options)
                 UI:updateStatus(statusMap[toolName] or ("🔧 执行: " .. toolName))
             end
             
-            -- 执行工具
+            -- 执行工具（添加错误捕获，防止工具执行卡住）
             local result
             if Tools then
-                result = Tools:execute(toolName, toolArgs, {
-                    Scanner = Scanner,
-                    Reader = Reader
-                })
+                local success, toolResult = pcall(function()
+                    return Tools:execute(toolName, toolArgs, {
+                        Scanner = Scanner,
+                        Reader = Reader
+                    })
+                end)
+                
+                if success then
+                    result = toolResult
+                else
+                    result = {error = "Tool execution failed: " .. tostring(toolResult)}
+                    print("[AI CLI] 工具执行错误: " .. tostring(toolResult))
+                end
             else
                 result = {error = "Tools module not loaded"}
             end

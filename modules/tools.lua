@@ -549,13 +549,27 @@ function Tools:searchInScript(args, Reader, Scanner)
     -- 获取所有脚本
     local scripts = Reader:getAllScripts()
     
+    -- 限制搜索的脚本数量，避免卡死
+    local maxScriptsToSearch = 50
+    local scriptsSearched = 0
+    
     for _, script in ipairs(scripts) do
+        -- 如果已经搜索了足够的脚本，停止
+        if scriptsSearched >= maxScriptsToSearch then
+            break
+        end
+        
         -- 如果指定了脚本名，只搜索匹配的脚本
         if scriptName and not script.Name:lower():find(scriptName:lower(), 1, true) then
             -- 跳过不匹配的脚本
         else
-            local data = Reader:readScript(script)
-            if data and data.source then
+            scriptsSearched = scriptsSearched + 1
+            
+            local success, data = pcall(function()
+                return Reader:readScript(script)
+            end)
+            
+            if success and data and data.source then
                 local matches = {}
                 local lines = {}
                 local lineNum = 0
@@ -611,6 +625,9 @@ function Tools:searchInScript(args, Reader, Scanner)
         searchText = searchText,
         totalMatches = totalMatches,
         scriptCount = #results,
+        scriptsSearched = scriptsSearched,
+        searchLimit = maxScriptsToSearch,
+        limited = scriptsSearched >= maxScriptsToSearch,
         results = results
     }
 end

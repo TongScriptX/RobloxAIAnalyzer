@@ -95,6 +95,11 @@ end
 function Http:request(options)
     local normalized = normalizeOptions(options)
     
+    -- 设置默认超时（60秒）
+    if not normalized.Timeout then
+        normalized.Timeout = 60
+    end
+    
     -- 使用执行器特定的请求函数
     if self.executor.requestFunc then
         local success, result = pcall(function()

@@ -2452,7 +2452,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         local conn1 = clickArea.MouseButton1Down:Connect(function()
             -- 重置长按标志
             entry:SetAttribute("longPressTriggered", false)
-            longPressTimer = task.delay(0.5, function()
+            longPressTimer = task.delay(2, function()
                 longPressTimer = nil
                 -- 设置长按已触发标志
                 entry:SetAttribute("longPressTriggered", true)
