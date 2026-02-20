@@ -2292,15 +2292,14 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         entry.BackgroundColor3 = self.Theme.backgroundSecondary
     end)
     
-    -- 长按检测（显示上下文菜单）
-    if needRebind and clickArea then
+    -- 长按检测（显示上下文菜单）- 存储在entry的属性中
+    if not entry:GetAttribute("longPressSetup") then
+        entry:SetAttribute("longPressSetup", true)
+        
         local longPressTimer = nil
-        local longPressTriggered = false
         
         clickArea.MouseButton1Down:Connect(function()
-            longPressTriggered = false
             longPressTimer = task.delay(0.5, function()
-                longPressTriggered = true
                 local key = entry:GetAttribute("currentNodeKey")
                 local current = self:findNodeByKey(key)
                 if current then
