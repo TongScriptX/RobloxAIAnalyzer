@@ -1052,8 +1052,11 @@ function UI:addMessage(text, isUser, reasoning)
     
     -- 自动滚动到底部
     task.wait()
-    self.messageArea.CanvasSize = UDim2.new(0, 0, 0, self.messageArea.UIListLayout.AbsoluteContentSize.Y)
-    self.messageArea.CanvasPosition = Vector2.new(0, self.messageArea.UIListLayout.AbsoluteContentSize.Y)
+    local listLayout = self.messageArea:FindFirstChild("UIListLayout")
+    if listLayout then
+        self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+        self.messageArea.CanvasPosition = Vector2.new(0, listLayout.AbsoluteContentSize.Y)
+    end
     
     return msgFrame, codeBlocks
 end
