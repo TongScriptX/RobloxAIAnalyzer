@@ -2204,22 +2204,28 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
-        -- 使用 nodeKey 存储连接（而不是 entryIndex）
-        if not self.entryConnections then self.entryConnections = {} end
-        if self.entryConnections[nodeKey] then
-            for _, conn in ipairs(self.entryConnections[nodeKey]) do
-                if conn then conn:Disconnect() end
-            end
-        end
-        self.entryConnections[nodeKey] = {}
-        
-        -- 展开处理函数
+        -- 展开处理函数 - 从缓存中获取当前节点
         local function toggleExpand()
-            print("[DEBUG] 展开点击: " .. tostring(nodeKey) .. ", childrenLoaded: " .. tostring(node.childrenLoaded))
+            print("[DEBUG] 展开点击: " .. tostring(nodeKey))
+            
+            -- 从缓存中获取当前节点（而不是使用闭包捕获的旧节点）
+            local currentNode = nil
+            for _, n in ipairs(vl.nodeCache) do
+                if (n.path or n.name) == nodeKey then
+                    currentNode = n
+                    break
+                end
+            end
+            
+            if not currentNode then
+                print("[DEBUG] 找不到节点: " .. tostring(nodeKey))
+                return
+            end
+            
             -- 懒加载子节点
-            if not node.childrenLoaded then
-                self:loadNodeChildren(node)
-                print("[DEBUG] 加载子节点完成, children数量: " .. (node.children and #node.children or "nil"))
+            if not currentNode.childrenLoaded then
+                self:loadNodeChildren(currentNode)
+                print("[DEBUG] 加载子节点完成, children数量: " .. (currentNode.children and #currentNode.children or "nil"))
             end
             
             vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
@@ -2227,18 +2233,23 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             self:updateVirtualList()
         end
         
-        -- 箭头按钮点击
-        local conn1 = expandBtn.MouseButton1Click:Connect(toggleExpand)
-        -- 整行点击也可以展开
-        local conn2 = nil
-        if clickArea then
-            conn2 = clickArea.MouseButton1Click:Connect(toggleExpand)
+        -- 使用条目索引管理连接，确保每个条目只有一组连接
+        local entryIdx = entry.Name  -- Entry1, Entry2, etc.
+        if not self.entryConnections then self.entryConnections = {} end
+        if not self.entryConnections[entryIdx] then self.entryConnections[entryIdx] = {} end
+        
+        -- 只有当没有连接时才创建新连接
+        if #self.entryConnections[entryIdx] == 0 then
+            -- 箭头按钮点击
+            local conn1 = expandBtn.MouseButton1Click:Connect(toggleExpand)
+            table.insert(self.entryConnections[entryIdx], conn1)
+            -- 整行点击也可以展开
+            if clickArea then
+                local conn2 = clickArea.MouseButton1Click:Connect(toggleExpand)
+                table.insert(self.entryConnections[entryIdx], conn2)
+            end
+            print("[DEBUG] 创建新连接: entryIdx=" .. tostring(entryIdx) .. ", nodeKey=" .. tostring(nodeKey))
         end
-        
-        table.insert(self.entryConnections[nodeKey], conn1)
-        if conn2 then table.insert(self.entryConnections[nodeKey], conn2) end
-        
-        print("[DEBUG] 连接已添加: nodeKey=" .. tostring(nodeKey) .. ", conn1=" .. tostring(conn1))
     else
         expandBtn.Visible = false
     end
