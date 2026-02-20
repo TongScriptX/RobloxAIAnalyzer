@@ -2292,13 +2292,16 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         entry.BackgroundColor3 = self.Theme.backgroundSecondary
     end)
     
-    -- 长按检测（显示上下文菜单）- 存储在entry的属性中
-    if not entry:GetAttribute("longPressSetup") then
-        entry:SetAttribute("longPressSetup", true)
+    -- 长按/右键菜单 - 只在节点变化时重新绑定
+    if needRebind and clickArea then
+        -- 确保 entryConnections 已初始化
+        if not self.entryConnections then self.entryConnections = {} end
+        if not self.entryConnections[entry.Name] then self.entryConnections[entry.Name] = {} end
         
         local longPressTimer = nil
         
-        clickArea.MouseButton1Down:Connect(function()
+        -- 长按检测
+        local conn1 = clickArea.MouseButton1Down:Connect(function()
             longPressTimer = task.delay(0.5, function()
                 local key = entry:GetAttribute("currentNodeKey")
                 local current = self:findNodeByKey(key)
@@ -2308,23 +2311,26 @@ function UI:updateVirtualEntry(entry, node, depth, index)
                 end
             end)
         end)
+        table.insert(self.entryConnections[entry.Name], conn1)
         
-        clickArea.MouseButton1Up:Connect(function()
+        local conn2 = clickArea.MouseButton1Up:Connect(function()
             if longPressTimer then
                 task.cancel(longPressTimer)
                 longPressTimer = nil
             end
         end)
+        table.insert(self.entryConnections[entry.Name], conn2)
         
-        clickArea.MouseLeave:Connect(function()
+        local conn3 = clickArea.MouseLeave:Connect(function()
             if longPressTimer then
                 task.cancel(longPressTimer)
                 longPressTimer = nil
             end
         end)
+        table.insert(self.entryConnections[entry.Name], conn3)
         
         -- 右键菜单
-        clickArea.MouseButton2Click:Connect(function()
+        local conn4 = clickArea.MouseButton2Click:Connect(function()
             local key = entry:GetAttribute("currentNodeKey")
             local current = self:findNodeByKey(key)
             if current then
@@ -2332,6 +2338,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
                 self:showContextMenu(current, Vector2.new(mousePos.X - 10, mousePos.Y - 10))
             end
         end)
+        table.insert(self.entryConnections[entry.Name], conn4)
     end
 end
 
