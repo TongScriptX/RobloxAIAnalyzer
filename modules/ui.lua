@@ -1756,6 +1756,13 @@ end
 
 -- 刷新资源列表显示（虚拟列表 + 树形目录）
 function UI:refreshResourceList()
+    -- 防抖：如果正在刷新则跳过
+    if self._isRefreshingList then
+        print("[DEBUG] refreshResourceList: 已在刷新中，跳过")
+        return
+    end
+    self._isRefreshingList = true
+    
     local callerInfo = debug.traceback("", 2):match("^[^\n]+") or "unknown"
     print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab) .. ", 调用栈: " .. callerInfo)
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
@@ -1782,11 +1789,13 @@ function UI:refreshResourceList()
     -- 类型视图单独处理
     if self.currentResourceTab == "types" then
         self:renderTypesView(Scanner)
+        self._isRefreshingList = false
         return
     end
     
     if not Scanner or not Scanner.cache.typeIndex then
         self:showVirtualMessage("请先扫描游戏资源")
+        self._isRefreshingList = false
         return
     end
     
@@ -1827,6 +1836,9 @@ function UI:refreshResourceList()
     
     -- 更新虚拟列表
     self:updateVirtualList()
+    
+    -- 完成刷新
+    self._isRefreshingList = false
 end
 
 -- 构建节点树（即时版本：直接使用游戏服务，不遍历缓存）
@@ -2212,7 +2224,8 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
-        local conn = expandBtn.MouseButton1Click:Connect(function()
+        -- 展开处理函数
+        local function toggleExpand()
             print("[DEBUG] 展开点击: " .. tostring(nodeKey) .. ", childrenLoaded: " .. tostring(node.childrenLoaded))
             -- 懒加载子节点
             if not node.childrenLoaded then
@@ -2223,9 +2236,16 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
             self:flattenNodeTree()
             self:updateVirtualList()
-        end)
+        end
+        
+        -- 箭头按钮点击
+        local conn1 = expandBtn.MouseButton1Click:Connect(toggleExpand)
+        -- 整行点击也可以展开
+        local conn2 = clickArea.MouseButton1Click:Connect(toggleExpand)
+        
         if entryIndex and self.entryConnections[entryIndex] then
-            table.insert(self.entryConnections[entryIndex], conn)
+            table.insert(self.entryConnections[entryIndex], conn1)
+            table.insert(self.entryConnections[entryIndex], conn2)
         end
     else
         expandBtn.Visible = false
