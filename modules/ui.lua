@@ -1759,19 +1759,15 @@ function UI:refreshResourceList()
     -- 防抖：100ms内只允许一次刷新
     local now = tick()
     if self._lastRefreshTime and (now - self._lastRefreshTime) < 0.1 then
-        print("[DEBUG] refreshResourceList: 防抖跳过")
         return
     end
     self._lastRefreshTime = now
     
-    local callerInfo = debug.traceback("", 2):match("^[^\n]+") or "unknown"
-    print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab) .. ", 调用栈: " .. callerInfo)
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
     -- 清除旧的虚拟列表条目和状态
     local vl = self.virtualList
-    print("[DEBUG] refreshResourceList: vl = " .. tostring(vl) .. ", entries数量 = " .. (vl.entries and #vl.entries or "nil"))
     if vl then
         if vl.entries then
             for _, entry in ipairs(vl.entries) do
@@ -1839,14 +1835,12 @@ end
 
 -- 构建节点树（即时版本：直接使用游戏服务，不遍历缓存）
 function UI:buildNodeTree(resources)
-    print("[DEBUG] buildNodeTree: 开始构建节点树")
     local vl = self.virtualList
     vl.nodeCache = {}
     
     -- 获取Scanner配置的服务列表
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local services = Scanner and Scanner.config and Scanner.config.services or {}
-    print("[DEBUG] buildNodeTree: 服务数量 = " .. #services)
     
     -- 直接从游戏服务创建节点（不遍历资源缓存）
     local serviceNodes = {}
@@ -1878,7 +1872,18 @@ function UI:buildNodeTree(resources)
     end)
     
     vl.nodeCache = serviceNodes
-    print("[DEBUG] buildNodeTree: 完成，节点数量 = " .. #serviceNodes)
+end
+
+-- 通过key查找节点
+function UI:findNodeByKey(nodeKey)
+    local vl = self.virtualList
+    if not vl or not vl.nodeCache then return nil end
+    for _, n in ipairs(vl.nodeCache) do
+        if (n.path or n.name) == nodeKey then
+            return n
+        end
+    end
+    return nil
 end
 
 -- 懒加载子节点（直接从游戏实例获取）
@@ -1987,7 +1992,6 @@ end
 
 -- 扁平化树用于虚拟列表渲染
 function UI:flattenNodeTree()
-    print("[DEBUG] flattenNodeTree: 开始扁平化")
     local vl = self.virtualList
     vl.flattenedTree = {}
     
@@ -2036,7 +2040,6 @@ function UI:flattenNodeTree()
     -- 更新滚动区域大小
     local canvasHeight = vl.totalNodes * vl.entryHeight
     self.resourceList.CanvasSize = UDim2.new(0, 0, 0, canvasHeight)
-    print("[DEBUG] flattenNodeTree: 完成，总节点数 = " .. vl.totalNodes)
 end
 
 -- 显示虚拟列表消息
@@ -2055,7 +2058,6 @@ end
 function UI:updateVirtualList()
     local vl = self.virtualList
     if not vl or not vl.container then 
-        print("[DEBUG] updateVirtualList: vl或container无效")
         return 
     end
     
@@ -2071,7 +2073,6 @@ function UI:updateVirtualList()
     local visibleCount = math.max(20, math.ceil(viewHeight / entryHeight) + 5) -- 至少20个条目
     local endIndex = math.min(startIndex + visibleCount, vl.totalNodes)
     
-    print("[DEBUG] updateVirtualList: totalNodes=" .. vl.totalNodes .. ", visibleCount=" .. visibleCount .. ", startIndex=" .. startIndex)
     
     -- 确保有足够的条目
     while #vl.entries < visibleCount do
@@ -2172,7 +2173,6 @@ end
 function UI:updateVirtualEntry(entry, node, depth, index)
     -- 防护检查
     if not entry or not entry.Parent then 
-        print("[DEBUG] updateVirtualEntry: entry无效")
         return 
     end
     
@@ -2185,7 +2185,6 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     
     -- 如果子元素不存在，跳过
     if not expandBtn or not icon or not name or not class then
-        print("[DEBUG] updateVirtualEntry: 子元素缺失")
         return
     end
     
@@ -2197,64 +2196,67 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     
     -- 展开/折叠按钮（使用count判断是否有子节点）
     local hasChildren = node.isFolder and (node.count and node.count > 0 or (node.children and next(node.children)))
-    print("[DEBUG] updateVirtualEntry: node=" .. tostring(node.name) .. ", isFolder=" .. tostring(node.isFolder) .. ", count=" .. tostring(node.count) .. ", hasChildren=" .. tostring(hasChildren))
+
     if hasChildren then
         local nodeKey = node.path or node.name
         local isExpanded = vl.expandedNodes[nodeKey]
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
-        -- 展开处理函数 - 从缓存中获取当前节点
-        local function toggleExpand()
-            print("[DEBUG] 展开点击: " .. tostring(nodeKey))
-            
-            -- 从缓存中获取当前节点（而不是使用闭包捕获的旧节点）
-            local currentNode = nil
-            for _, n in ipairs(vl.nodeCache) do
-                if (n.path or n.name) == nodeKey then
-                    currentNode = n
-                    break
-                end
-            end
-            
-            if not currentNode then
-                print("[DEBUG] 找不到节点: " .. tostring(nodeKey))
-                return
-            end
-            
-            -- 懒加载子节点
-            if not currentNode.childrenLoaded then
-                self:loadNodeChildren(currentNode)
-                print("[DEBUG] 加载子节点完成, children数量: " .. (currentNode.children and #currentNode.children or "nil"))
-            end
-            
-            vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
-            self:flattenNodeTree()
-            self:updateVirtualList()
-        end
-        
-        -- 使用条目索引管理连接，确保每个条目只有一组连接
-        local entryIdx = entry.Name  -- Entry1, Entry2, etc.
+        -- 使用条目名称管理连接
+        local entryIdx = entry.Name
         if not self.entryConnections then self.entryConnections = {} end
         if not self.entryConnections[entryIdx] then self.entryConnections[entryIdx] = {} end
         
-        local connCount = #self.entryConnections[entryIdx]
-        print("[DEBUG] 检查连接: entryIdx=" .. tostring(entryIdx) .. ", nodeKey=" .. tostring(nodeKey) .. ", 现有连接数=" .. tostring(connCount))
-        
-        -- 只有当没有连接时才创建新连接
-        if connCount == 0 then
-            -- 箭头按钮点击
-            local conn1 = expandBtn.MouseButton1Click:Connect(toggleExpand)
-            table.insert(self.entryConnections[entryIdx], conn1)
-            -- 整行点击也可以展开
+        -- 只创建一次连接
+        if #self.entryConnections[entryIdx] == 0 then
+            -- 展开按钮点击
+            table.insert(self.entryConnections[entryIdx], expandBtn.MouseButton1Click:Connect(function()
+                local current = self:findNodeByKey(nodeKey)
+                if current and not current.childrenLoaded then
+                    self:loadNodeChildren(current)
+                end
+                vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
+                self:flattenNodeTree()
+                self:updateVirtualList()
+            end))
+            
+            -- 整行点击展开（如果可展开）
             if clickArea then
-                local conn2 = clickArea.MouseButton1Click:Connect(toggleExpand)
-                table.insert(self.entryConnections[entryIdx], conn2)
+                table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
+                    local current = self:findNodeByKey(nodeKey)
+                    if current and not current.childrenLoaded then
+                        self:loadNodeChildren(current)
+                    end
+                    vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
+                    self:flattenNodeTree()
+                    self:updateVirtualList()
+                end))
             end
-            print("[DEBUG] 创建新连接: entryIdx=" .. tostring(entryIdx) .. ", nodeKey=" .. tostring(nodeKey))
         end
     else
         expandBtn.Visible = false
+        
+        -- 不可展开时，clickArea用于发送AI信息
+        local entryIdx = entry.Name
+        if not self.entryConnections then self.entryConnections = {} end
+        if not self.entryConnections[entryIdx] then self.entryConnections[entryIdx] = {} end
+        
+        if #self.entryConnections[entryIdx] == 0 and clickArea then
+            table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
+                if node.instance then
+                    local objData = {
+                        name = node.name,
+                        className = node.className,
+                        path = node.path,
+                        instance = node.instance
+                    }
+                    if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
+                        self.resourceCallbacks.sendToAI(objData)
+                    end
+                end
+            end))
+        end
     end
     
     -- 图标
@@ -2274,25 +2276,6 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     
     -- 类名
     class.Text = node.className or ""
-    
-    -- 点击事件
-    local conn2 = clickArea.MouseButton1Click:Connect(function()
-        if node.instance then
-            -- 创建资源信息发送给AI
-            local objData = {
-                name = node.name,
-                className = node.className,
-                path = node.path,
-                instance = node.instance
-            }
-            if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
-                self.resourceCallbacks.sendToAI(objData)
-            end
-        end
-    end)
-    if entryIndex and self.entryConnections[entryIndex] then
-        table.insert(self.entryConnections[entryIndex], conn2)
-    end
     
     -- 悬停效果
     entry.MouseEnter:Connect(function()
