@@ -2208,31 +2208,14 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         end
         self.entryConnections[entryIdx] = {}
         
-        -- 展开按钮点击
-        table.insert(self.entryConnections[entryIdx], expandBtn.MouseButton1Click:Connect(function()
-            print("[DEBUG] expandBtn点击: " .. tostring(nodeKey))
-            local current = self:findNodeByKey(nodeKey)
-            print("[DEBUG] findNodeByKey结果: " .. tostring(current and current.name or "nil"))
-            if current and not current.childrenLoaded then
-                self:loadNodeChildren(current)
-            end
-            vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
-            print("[DEBUG] 展开状态: " .. tostring(vl.expandedNodes[nodeKey]))
-            self:flattenNodeTree()
-            self:updateVirtualList()
-        end))
-        
-        -- 整行点击展开
+        -- 只用clickArea处理展开（expandBtn在clickArea上层，点击会冒泡导致双触发）
         if clickArea then
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
-                print("[DEBUG] clickArea点击: " .. tostring(nodeKey))
                 local current = self:findNodeByKey(nodeKey)
-                print("[DEBUG] findNodeByKey结果: " .. tostring(current and current.name or "nil"))
                 if current and not current.childrenLoaded then
                     self:loadNodeChildren(current)
                 end
                 vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
-                print("[DEBUG] 展开状态: " .. tostring(vl.expandedNodes[nodeKey]))
                 self:flattenNodeTree()
                 self:updateVirtualList()
             end))
