@@ -2189,23 +2189,6 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         return
     end
     
-    -- 断开旧的事件连接（使用entry的Attribute存储索引）
-    local entryIndex = entry:GetAttribute("entryIndex")
-    if entryIndex and self.entryConnections and self.entryConnections[entryIndex] then
-        for _, conn in ipairs(self.entryConnections[entryIndex]) do
-            if conn then conn:Disconnect() end
-        end
-        self.entryConnections[entryIndex] = {}
-    end
-    
-    -- 初始化连接存储
-    if not self.entryConnections then
-        self.entryConnections = {}
-    end
-    if entryIndex then
-        self.entryConnections[entryIndex] = {}
-    end
-    
     -- 缩进
     local indent = depth * 16
     expandBtn.Position = UDim2.new(0, indent, 0, 0)
@@ -2220,6 +2203,15 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         local isExpanded = vl.expandedNodes[nodeKey]
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
+        
+        -- 使用 nodeKey 存储连接（而不是 entryIndex）
+        if not self.entryConnections then self.entryConnections = {} end
+        if self.entryConnections[nodeKey] then
+            for _, conn in ipairs(self.entryConnections[nodeKey]) do
+                if conn then conn:Disconnect() end
+            end
+        end
+        self.entryConnections[nodeKey] = {}
         
         -- 展开处理函数
         local function toggleExpand()
@@ -2243,10 +2235,10 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             conn2 = clickArea.MouseButton1Click:Connect(toggleExpand)
         end
         
-        if entryIndex and self.entryConnections[entryIndex] then
-            table.insert(self.entryConnections[entryIndex], conn1)
-            table.insert(self.entryConnections[entryIndex], conn2)
-        end
+        table.insert(self.entryConnections[nodeKey], conn1)
+        if conn2 then table.insert(self.entryConnections[nodeKey], conn2) end
+        
+        print("[DEBUG] 连接已添加: nodeKey=" .. tostring(nodeKey) .. ", conn1=" .. tostring(conn1))
     else
         expandBtn.Visible = false
     end
