@@ -2291,6 +2291,49 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     entry.MouseLeave:Connect(function()
         entry.BackgroundColor3 = self.Theme.backgroundSecondary
     end)
+    
+    -- 长按检测（显示上下文菜单）
+    if needRebind and clickArea then
+        local longPressTimer = nil
+        local longPressTriggered = false
+        
+        clickArea.MouseButton1Down:Connect(function()
+            longPressTriggered = false
+            longPressTimer = task.delay(0.5, function()
+                longPressTriggered = true
+                local key = entry:GetAttribute("currentNodeKey")
+                local current = self:findNodeByKey(key)
+                if current then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    self:showContextMenu(current, Vector2.new(mousePos.X - 10, mousePos.Y - 10))
+                end
+            end)
+        end)
+        
+        clickArea.MouseButton1Up:Connect(function()
+            if longPressTimer then
+                task.cancel(longPressTimer)
+                longPressTimer = nil
+            end
+        end)
+        
+        clickArea.MouseLeave:Connect(function()
+            if longPressTimer then
+                task.cancel(longPressTimer)
+                longPressTimer = nil
+            end
+        end)
+        
+        -- 右键菜单
+        clickArea.MouseButton2Click:Connect(function()
+            local key = entry:GetAttribute("currentNodeKey")
+            local current = self:findNodeByKey(key)
+            if current then
+                local mousePos = UserInputService:GetMouseLocation()
+                self:showContextMenu(current, Vector2.new(mousePos.X - 10, mousePos.Y - 10))
+            end
+        end)
+    end
 end
 
 -- 清空资源列表
@@ -3456,6 +3499,139 @@ function UI:checkFileBrowserTrigger()
         self:showFileBrowser()
         -- 移除 @ 字符
         self.inputBox.Text = text:sub(1, -2)
+    end
+end
+
+-- 显示上下文菜单
+function UI:showContextMenu(node, position)
+    -- 关闭已有菜单
+    self:closeContextMenu()
+    
+    if not node then return end
+    
+    -- 创建菜单容器
+    local menu = Instance.new("Frame", self.mainFrame)
+    menu.Name = "ContextMenu"
+    menu.Size = UDim2.new(0, 160, 0, 0)
+    menu.Position = UDim2.new(0, position.X, 0, position.Y)
+    menu.BackgroundColor3 = self.Theme.backgroundSecondary
+    menu.BorderSizePixel = 1
+    menu.BorderColor3 = self.Theme.border
+    menu.ZIndex = 100
+    menu.AutomaticSize = Enum.AutomaticSize.Y
+    createCorner(menu, 6)
+    
+    -- 添加阴影效果
+    local stroke = Instance.new("UIStroke", menu)
+    stroke.Color = Color3.fromRGB(0, 0, 0)
+    stroke.Transparency = 0.7
+    stroke.Thickness = 2
+    
+    local layout = Instance.new("UIListLayout", menu)
+    layout.Padding = UDim.new(0, 2)
+    
+    -- 菜单项配置
+    local menuItems = {
+        {text = "📋 复制路径", action = function()
+            if node.path then
+                setclipboard(node.path)
+                self:addMessage("✅ 路径已复制: " .. node.path, false)
+            end
+        end},
+        {text = "📝 复制名称", action = function()
+            if node.name then
+                setclipboard(node.name)
+                self:addMessage("✅ 名称已复制: " .. node.name, false)
+            end
+        end},
+    }
+    
+    -- 如果是脚本类型，添加查看源码选项
+    if node.className and node.className:find("Script") and node.instance then
+        table.insert(menuItems, {text = "👁️ 查看源码", action = function()
+            local success, source = pcall(function()
+                return decompile(node.instance)
+            end)
+            if success and source then
+                self:addMessage("```lua\n" .. source .. "\n```", false)
+            else
+                self:addMessage("❌ 无法获取源码: " .. tostring(source), false)
+            end
+        end})
+    end
+    
+    -- 添加询问AI选项
+    table.insert(menuItems, {text = "🤖 询问AI", action = function()
+        if self.resourceCallbacks and self.resourceCallbacks.sendToAI then
+            self.resourceCallbacks.sendToAI({
+                name = node.name,
+                className = node.className,
+                path = node.path,
+                instance = node.instance
+            })
+        end
+    end})
+    
+    -- 如果是Remote，添加调用选项
+    if node.className and node.className:find("Remote") and node.instance then
+        table.insert(menuItems, {text = "📤 调用Remote", action = function()
+            self:addMessage("📡 Remote路径: " .. tostring(node.path), false)
+            if node.className:find("Function") then
+                self:addMessage("类型: RemoteFunction - 使用 InvokeServer()", false)
+            else
+                self:addMessage("类型: RemoteEvent - 使用 FireServer()", false)
+            end
+        end})
+    end
+    
+    -- 创建菜单项按钮
+    for _, item in ipairs(menuItems) do
+        local btn = Instance.new("TextButton", menu)
+        btn.Size = UDim2.new(1, 0, 0, 28)
+        btn.BackgroundTransparency = 1
+        btn.Text = "  " .. item.text
+        btn.TextColor3 = self.Theme.text
+        btn.TextSize = 12
+        btn.Font = Enum.Font.Gotham
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.ZIndex = 101
+        
+        btn.MouseEnter:Connect(function()
+            btn.BackgroundColor3 = self.Theme.accent
+            btn.BackgroundTransparency = 0.3
+        end)
+        btn.MouseLeave:Connect(function()
+            btn.BackgroundTransparency = 1
+        end)
+        
+        btn.MouseButton1Click:Connect(function()
+            item.action()
+            self:closeContextMenu()
+        end)
+    end
+    
+    -- 点击其他地方关闭菜单
+    self.contextMenuConnection = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mousePos = UserInputService:GetMouseLocation()
+            if math.abs(mousePos.X - position.X) > 100 or math.abs(mousePos.Y - position.Y) > 150 then
+                self:closeContextMenu()
+            end
+        end
+    end)
+    
+    self.contextMenu = menu
+end
+
+-- 关闭上下文菜单
+function UI:closeContextMenu()
+    if self.contextMenuConnection then
+        self.contextMenuConnection:Disconnect()
+        self.contextMenuConnection = nil
+    end
+    if self.contextMenu then
+        self.contextMenu:Destroy()
+        self.contextMenu = nil
     end
 end
 
