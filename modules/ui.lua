@@ -1671,8 +1671,12 @@ function UI:createResourceView()
         totalNodes = 0,      -- 总节点数
     }
     
-    -- 滚动事件
+    -- 滚动事件（添加防抖防止循环）
+    local lastScrollUpdate = 0
     resourceList:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+        local now = tick()
+        if now - lastScrollUpdate < 0.05 then return end -- 50ms防抖
+        lastScrollUpdate = now
         self:updateVirtualList()
     end)
     
@@ -1752,7 +1756,7 @@ end
 
 -- 刷新资源列表显示（虚拟列表 + 树形目录）
 function UI:refreshResourceList()
-    print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab))
+    print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab) .. ", 调用栈: " .. debug.traceback("", 2):match("^[^\n]+"))
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
@@ -2107,6 +2111,7 @@ function UI:createVirtualEntry(index)
     expandBtn.TextSize = 10
     expandBtn.Font = Enum.Font.Gotham
     expandBtn.TextColor3 = self.Theme.textMuted
+    expandBtn.ZIndex = 10  -- 确保在clickArea之上
     
     -- 图标
     local icon = Instance.new("TextLabel", entry)
