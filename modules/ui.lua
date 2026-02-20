@@ -2187,35 +2187,43 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     icon.Position = UDim2.new(0, indent + 18, 0, 0)
     name.Position = UDim2.new(0, indent + 38, 0, 0)
     
+    -- 当前节点的key
+    local nodeKey = node.path or node.name
+    
+    -- 检查是否需要重新绑定（只在节点变化时重新绑定）
+    local currentNodeKey = entry:GetAttribute("currentNodeKey")
+    local needRebind = (currentNodeKey ~= nodeKey)
+    entry:SetAttribute("currentNodeKey", nodeKey)
+    
     -- 展开/折叠按钮（使用count判断是否有子节点）
     local hasChildren = node.isFolder and (node.count and node.count > 0 or (node.children and next(node.children)))
 
     if hasChildren then
-        local nodeKey = node.path or node.name
         local isExpanded = vl.expandedNodes[nodeKey]
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
-        -- 断开旧连接并创建新连接（条目复用时nodeKey已变）
-        local entryIdx = entry.Name
-        if not self.entryConnections then self.entryConnections = {} end
-        
-        -- 断开并清除旧连接
-        if self.entryConnections[entryIdx] then
-            for _, conn in ipairs(self.entryConnections[entryIdx]) do
-                if conn then pcall(function() conn:Disconnect() end) end
+        -- 只在节点变化时重新绑定连接
+        if needRebind and clickArea then
+            local entryIdx = entry.Name
+            if not self.entryConnections then self.entryConnections = {} end
+            
+            -- 断开旧连接
+            if self.entryConnections[entryIdx] then
+                for _, conn in ipairs(self.entryConnections[entryIdx]) do
+                    if conn then pcall(function() conn:Disconnect() end) end
+                end
             end
-        end
-        self.entryConnections[entryIdx] = {}
-        
-        -- 只用clickArea处理展开（expandBtn在clickArea上层，点击会冒泡导致双触发）
-        if clickArea then
+            self.entryConnections[entryIdx] = {}
+            
+            -- 创建新连接
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
-                local current = self:findNodeByKey(nodeKey)
+                local key = entry:GetAttribute("currentNodeKey")
+                local current = self:findNodeByKey(key)
                 if current and not current.childrenLoaded then
                     self:loadNodeChildren(current)
                 end
-                vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
+                vl.expandedNodes[key] = not vl.expandedNodes[key]
                 self:flattenNodeTree()
                 self:updateVirtualList()
             end))
@@ -2223,21 +2231,24 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     else
         expandBtn.Visible = false
         
-        -- 不可展开时，clickArea用于发送AI信息
-        local entryIdx = entry.Name
-        if not self.entryConnections then self.entryConnections = {} end
-        
-        -- 断开并清除旧连接
-        if self.entryConnections[entryIdx] then
-            for _, conn in ipairs(self.entryConnections[entryIdx]) do
-                if conn then pcall(function() conn:Disconnect() end) end
+        -- 只在节点变化时重新绑定连接
+        if needRebind and clickArea then
+            local entryIdx = entry.Name
+            if not self.entryConnections then self.entryConnections = {} end
+            
+            -- 断开旧连接
+            if self.entryConnections[entryIdx] then
+                for _, conn in ipairs(self.entryConnections[entryIdx]) do
+                    if conn then pcall(function() conn:Disconnect() end) end
+                end
             end
-        end
-        self.entryConnections[entryIdx] = {}
-        
-        if clickArea then
+            self.entryConnections[entryIdx] = {}
+            
+            -- 创建新连接（用于发送AI信息）
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
-                if node.instance then
+                local key = entry:GetAttribute("currentNodeKey")
+                local current = self:findNodeByKey(key)
+                if current and current.instance then
                     local objData = {
                         name = node.name,
                         className = node.className,
