@@ -10,6 +10,11 @@ UI.isLoading = false
 UI.loadingConnection = nil
 UI.loadingDots = 0
 
+-- 资源持续监听连接
+UI.resourceConnections = {}
+UI.resourceRefreshDebounce = false
+UI.resourceAutoRefresh = true
+
 -- 主题配色
 UI.Theme = {
     background = Color3.fromRGB(25, 25, 30),
@@ -1687,6 +1692,9 @@ function UI:createResourceView()
     self.resourceList = resourceList
     self.scanBtn = scanBtn
     
+    -- 设置资源持续监听
+    self:setupResourceConnections()
+    
     return resourceFrame
 end
 
@@ -1827,6 +1835,103 @@ function UI:refreshResourceList()
     self:updateVirtualList()
 end
 
+-- 设置资源持续监听（基于DEX脚本模式）
+function UI:setupResourceConnections()
+    -- 先清理旧连接
+    self:teardownResourceConnections()
+    
+    if not self.resourceAutoRefresh then return end
+    
+    local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
+    local services = Scanner and Scanner.config and Scanner.config.services or {}
+    
+    -- 防抖刷新函数
+    local function scheduleRefresh()
+        if self.resourceRefreshDebounce then return end
+        self.resourceRefreshDebounce = true
+        
+        task.delay(0.2, function()
+            self.resourceRefreshDebounce = false
+            -- 只有在资源视图可见时才刷新
+            if self.currentView == "resources" and self.resourceView and self.resourceView.Visible then
+                -- 标记节点缓存需要更新
+                local vl = self.virtualList
+                if vl then
+                    -- 清除展开节点的子节点缓存，让它们重新加载
+                    for key, _ in pairs(vl.expandedNodes) do
+                        local node = self:findNodeByKey(key)
+                        if node then
+                            node.childrenLoaded = false
+                            node.children = nil
+                        end
+                    end
+                end
+                self:refreshResourceList()
+            end
+        end)
+    end
+    
+    -- 监听各服务的变化
+    for _, serviceInfo in ipairs(services) do
+        local service = serviceInfo.service
+        if service then
+            -- 监听子对象添加
+            local conn1 = service.ChildAdded:Connect(function(child)
+                scheduleRefresh()
+            end)
+            table.insert(self.resourceConnections, conn1)
+            
+            -- 监听子对象移除
+            local conn2 = service.ChildRemoved:Connect(function(child)
+                scheduleRefresh()
+            end)
+            table.insert(self.resourceConnections, conn2)
+            
+            -- 监听后代变化（更精细的监听）
+            local conn3 = service.DescendantAdded:Connect(function(descendant)
+                scheduleRefresh()
+            end)
+            table.insert(self.resourceConnections, conn3)
+            
+            local conn4 = service.DescendantRemoving:Connect(function(descendant)
+                scheduleRefresh()
+            end)
+            table.insert(self.resourceConnections, conn4)
+        end
+    end
+    
+    -- 监听全局变化（备用）
+    local conn5 = game.ItemChanged:Connect(function(obj, prop)
+        if prop == "Parent" or prop == "Name" then
+            scheduleRefresh()
+        end
+    end)
+    table.insert(self.resourceConnections, conn5)
+end
+
+-- 清理资源监听连接
+function UI:teardownResourceConnections()
+    for _, conn in ipairs(self.resourceConnections) do
+        if conn and conn.Connected then
+            conn:Disconnect()
+        end
+    end
+    self.resourceConnections = {}
+end
+
+-- 切换自动刷新
+function UI:toggleResourceAutoRefresh()
+    self.resourceAutoRefresh = not self.resourceAutoRefresh
+    
+    if self.resourceAutoRefresh then
+        self:setupResourceConnections()
+    else
+        self:teardownResourceConnections()
+    end
+    
+    return self.resourceAutoRefresh
+end
+
 -- 构建节点树（即时版本：直接使用游戏服务，不遍历缓存）
 function UI:buildNodeTree(resources)
     local vl = self.virtualList
@@ -1868,15 +1973,38 @@ function UI:buildNodeTree(resources)
     vl.nodeCache = serviceNodes
 end
 
--- 通过key查找节点
-function UI:findNodeByKey(nodeKey)
+-- 通过key查找节点（支持递归搜索子节点）
+function UI:findNodeByKey(nodeKey, nodes)
     local vl = self.virtualList
-    if not vl or not vl.nodeCache then return nil end
-    for _, n in ipairs(vl.nodeCache) do
+    if not vl then return nil end
+    
+    -- 如果没有传入nodes，从顶层开始搜索
+    if not nodes then
+        nodes = vl.nodeCache
+    end
+    
+    if not nodes then return nil end
+    
+    -- 搜索当前层级
+    for _, n in ipairs(nodes) do
         if (n.path or n.name) == nodeKey then
             return n
         end
     end
+    
+    -- 递归搜索子节点
+    for _, n in ipairs(nodes) do
+        if n.children then
+            -- n.children 是 table，需要转换
+            local childrenList = {}
+            for _, child in pairs(n.children) do
+                table.insert(childrenList, child)
+            end
+            local found = self:findNodeByKey(nodeKey, childrenList)
+            if found then return found end
+        end
+    end
+    
     return nil
 end
 
@@ -2178,7 +2306,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     local clickArea = entry:FindFirstChild("ClickArea")
     
     -- 如果子元素不存在，跳过
-    if not expandBtn or not icon or not name or not class then
+    if not expandBtn or not icon or not name or not class or not clickArea then
         return
     end
     
@@ -2219,8 +2347,12 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             end
             self.entryConnections[entryIdx] = {}
             
-            -- 创建新连接
+            -- 创建新连接（检查长按标志，避免长按后触发点击）
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
+                -- 如果长按已触发，不执行展开/折叠
+                if entry:GetAttribute("longPressTriggered") then
+                    return
+                end
                 local key = entry:GetAttribute("currentNodeKey")
                 local current = self:findNodeByKey(key)
                 if current and not current.childrenLoaded then
@@ -2247,8 +2379,12 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             end
             self.entryConnections[entryIdx] = {}
             
-            -- 创建新连接（用于发送AI信息）
+            -- 创建新连接（用于发送AI信息，检查长按标志）
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
+                -- 如果长按已触发，不执行点击动作
+                if entry:GetAttribute("longPressTriggered") then
+                    return
+                end
                 local key = entry:GetAttribute("currentNodeKey")
                 local current = self:findNodeByKey(key)
                 if current and current.instance then
@@ -2284,25 +2420,42 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     -- 类名
     class.Text = node.className or ""
     
-    -- 悬停效果
-    entry.MouseEnter:Connect(function()
-        entry.BackgroundColor3 = self.Theme.accent
-    end)
-    entry.MouseLeave:Connect(function()
-        entry.BackgroundColor3 = self.Theme.backgroundSecondary
-    end)
+    -- 悬停效果（每次都重新绑定，因为entry可能被复用）
+    if not self.entryHoverConnections then self.entryHoverConnections = {} end
+    if self.entryHoverConnections[entry.Name] then
+        for _, conn in ipairs(self.entryHoverConnections[entry.Name]) do
+            if conn then pcall(function() conn:Disconnect() end) end
+        end
+    end
+    self.entryHoverConnections[entry.Name] = {
+        entry.MouseEnter:Connect(function()
+            entry.BackgroundColor3 = self.Theme.accent
+        end),
+        entry.MouseLeave:Connect(function()
+            entry.BackgroundColor3 = self.Theme.backgroundSecondary
+        end)
+    }
     
-    -- 长按/右键菜单 - 只在节点变化时重新绑定
+    -- 长按/右键菜单 - 在节点变化时重新绑定
     if needRebind and clickArea then
-        -- 确保 entryConnections 已初始化
+        -- 确保 entryConnections 已初始化（不覆盖已有的连接）
         if not self.entryConnections then self.entryConnections = {} end
-        if not self.entryConnections[entry.Name] then self.entryConnections[entry.Name] = {} end
+        if not self.entryConnections[entry.Name] then 
+            self.entryConnections[entry.Name] = {} 
+        end
+        -- 注意：不清空已有连接，因为 hasChildren/else 分支已经添加了点击连接
         
+        -- 长按计时器和标志
         local longPressTimer = nil
         
-        -- 长按检测
+        -- 长按检测（MouseButton1Down开始计时）
         local conn1 = clickArea.MouseButton1Down:Connect(function()
+            -- 重置长按标志
+            entry:SetAttribute("longPressTriggered", false)
             longPressTimer = task.delay(0.5, function()
+                longPressTimer = nil
+                -- 设置长按已触发标志
+                entry:SetAttribute("longPressTriggered", true)
                 local key = entry:GetAttribute("currentNodeKey")
                 local current = self:findNodeByKey(key)
                 if current then
@@ -2313,6 +2466,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         end)
         table.insert(self.entryConnections[entry.Name], conn1)
         
+        -- MouseButton1Up取消长按
         local conn2 = clickArea.MouseButton1Up:Connect(function()
             if longPressTimer then
                 task.cancel(longPressTimer)
@@ -2321,6 +2475,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         end)
         table.insert(self.entryConnections[entry.Name], conn2)
         
+        -- MouseLeave取消长按
         local conn3 = clickArea.MouseLeave:Connect(function()
             if longPressTimer then
                 task.cancel(longPressTimer)
@@ -2329,8 +2484,8 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         end)
         table.insert(self.entryConnections[entry.Name], conn3)
         
-        -- 右键菜单
-        local conn4 = clickArea.MouseButton2Click:Connect(function()
+        -- 右键菜单（使用Down事件更可靠）
+        local conn4 = clickArea.MouseButton2Down:Connect(function()
             local key = entry:GetAttribute("currentNodeKey")
             local current = self:findNodeByKey(key)
             if current then
@@ -3028,6 +3183,24 @@ end
 
 -- 销毁UI
 function UI:destroy()
+    -- 清理资源监听连接
+    self:teardownResourceConnections()
+    
+    -- 清理上下文菜单
+    self:closeContextMenu()
+    
+    -- 清理条目连接
+    if self.entryConnections then
+        for entryName, connections in pairs(self.entryConnections) do
+            for _, conn in ipairs(connections) do
+                if conn and conn.Connected then
+                    conn:Disconnect()
+                end
+            end
+        end
+        self.entryConnections = {}
+    end
+    
     if self.screenGui then
         self.screenGui:Destroy()
     end
@@ -3514,6 +3687,7 @@ function UI:showContextMenu(node, position)
     self:closeContextMenu()
     
     if not node then return end
+    if not self.mainFrame then return end
     
     -- 创建菜单容器
     local menu = Instance.new("Frame", self.mainFrame)
@@ -3540,14 +3714,30 @@ function UI:showContextMenu(node, position)
     local menuItems = {
         {text = "📋 复制路径", action = function()
             if node.path then
-                setclipboard(node.path)
-                self:addMessage("✅ 路径已复制: " .. node.path, false)
+                if setclipboard then
+                    local ok = pcall(setclipboard, node.path)
+                    if ok then
+                        self:addMessage("✅ 路径已复制: " .. node.path, false)
+                    else
+                        self:addMessage("❌ 复制失败", false)
+                    end
+                else
+                    self:addMessage("⚠️ 当前执行器不支持剪贴板", false)
+                end
             end
         end},
         {text = "📝 复制名称", action = function()
             if node.name then
-                setclipboard(node.name)
-                self:addMessage("✅ 名称已复制: " .. node.name, false)
+                if setclipboard then
+                    local ok = pcall(setclipboard, node.name)
+                    if ok then
+                        self:addMessage("✅ 名称已复制: " .. node.name, false)
+                    else
+                        self:addMessage("❌ 复制失败", false)
+                    end
+                else
+                    self:addMessage("⚠️ 当前执行器不支持剪贴板", false)
+                end
             end
         end},
     }
@@ -3555,13 +3745,15 @@ function UI:showContextMenu(node, position)
     -- 如果是脚本类型，添加查看源码选项
     if node.className and node.className:find("Script") and node.instance then
         table.insert(menuItems, {text = "👁️ 查看源码", action = function()
-            local success, source = pcall(function()
-                return decompile(node.instance)
-            end)
-            if success and source then
-                self:addMessage("```lua\n" .. source .. "\n```", false)
+            if decompile then
+                local success, source = pcall(decompile, node.instance)
+                if success and source then
+                    self:addMessage("```lua\n" .. source .. "\n```", false)
+                else
+                    self:addMessage("❌ 无法获取源码: " .. tostring(source), false)
+                end
             else
-                self:addMessage("❌ 无法获取源码: " .. tostring(source), false)
+                self:addMessage("⚠️ 当前执行器不支持反编译", false)
             end
         end})
     end
@@ -3616,33 +3808,34 @@ function UI:showContextMenu(node, position)
         end)
     end
     
-    -- 点击其他地方关闭菜单
-    task.defer(function()
-        task.wait()  -- 等待一帧让菜单渲染完成
-        if not self.contextMenu then return end
-        
-        self.contextMenuConnection = UserInputService.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
-                local mousePos = UserInputService:GetMouseLocation()
-                
-                -- 检查点击是否在菜单范围内
-                local menuFrame = self.contextMenu
-                if menuFrame then
-                    local menuPos = menuFrame.AbsolutePosition
-                    local menuSize = menuFrame.AbsoluteSize
-                    
-                    local inMenu = mousePos.X >= menuPos.X and mousePos.X <= menuPos.X + menuSize.X
-                                and mousePos.Y >= menuPos.Y and mousePos.Y <= menuPos.Y + menuSize.Y
-                    
-                    if not inMenu then
-                        self:closeContextMenu()
-                    end
-                end
-            end
-        end)
-    end)
-    
+    -- 保存菜单引用
     self.contextMenu = menu
+    
+    -- 点击其他地方关闭菜单
+    task.wait(0.1)  -- 等待菜单渲染完成
+    
+    self.contextMenuConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
+            local mousePos = UserInputService:GetMouseLocation()
+            
+            -- 检查点击是否在菜单范围内
+            local menuFrame = self.contextMenu
+            if menuFrame and menuFrame.Parent then
+                local menuPos = menuFrame.AbsolutePosition
+                local menuSize = menuFrame.AbsoluteSize
+                
+                local inMenu = mousePos.X >= menuPos.X and mousePos.X <= menuPos.X + menuSize.X
+                            and mousePos.Y >= menuPos.Y and mousePos.Y <= menuPos.Y + menuSize.Y
+                
+                if not inMenu then
+                    self:closeContextMenu()
+                end
+            else
+                -- 菜单已不存在，关闭连接
+                self:closeContextMenu()
+            end
+        end
+    end)
 end
 
 -- 关闭上下文菜单
