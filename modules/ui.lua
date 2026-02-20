@@ -1756,12 +1756,13 @@ end
 
 -- 刷新资源列表显示（虚拟列表 + 树形目录）
 function UI:refreshResourceList()
-    -- 防抖：如果正在刷新则跳过
-    if self._isRefreshingList then
-        print("[DEBUG] refreshResourceList: 已在刷新中，跳过")
+    -- 防抖：100ms内只允许一次刷新
+    local now = tick()
+    if self._lastRefreshTime and (now - self._lastRefreshTime) < 0.1 then
+        print("[DEBUG] refreshResourceList: 防抖跳过")
         return
     end
-    self._isRefreshingList = true
+    self._lastRefreshTime = now
     
     local callerInfo = debug.traceback("", 2):match("^[^\n]+") or "unknown"
     print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab) .. ", 调用栈: " .. callerInfo)
@@ -1789,13 +1790,11 @@ function UI:refreshResourceList()
     -- 类型视图单独处理
     if self.currentResourceTab == "types" then
         self:renderTypesView(Scanner)
-        self._isRefreshingList = false
         return
     end
     
     if not Scanner or not Scanner.cache.typeIndex then
         self:showVirtualMessage("请先扫描游戏资源")
-        self._isRefreshingList = false
         return
     end
     
@@ -1836,9 +1835,6 @@ function UI:refreshResourceList()
     
     -- 更新虚拟列表
     self:updateVirtualList()
-    
-    -- 完成刷新
-    self._isRefreshingList = false
 end
 
 -- 构建节点树（即时版本：直接使用游戏服务，不遍历缓存）
