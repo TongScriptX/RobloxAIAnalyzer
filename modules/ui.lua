@@ -3617,13 +3617,29 @@ function UI:showContextMenu(node, position)
     end
     
     -- 点击其他地方关闭菜单
-    self.contextMenuConnection = UserInputService.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local mousePos = UserInputService:GetMouseLocation()
-            if math.abs(mousePos.X - position.X) > 100 or math.abs(mousePos.Y - position.Y) > 150 then
-                self:closeContextMenu()
+    task.defer(function()
+        task.wait()  -- 等待一帧让菜单渲染完成
+        if not self.contextMenu then return end
+        
+        self.contextMenuConnection = UserInputService.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
+                local mousePos = UserInputService:GetMouseLocation()
+                
+                -- 检查点击是否在菜单范围内
+                local menuFrame = self.contextMenu
+                if menuFrame then
+                    local menuPos = menuFrame.AbsolutePosition
+                    local menuSize = menuFrame.AbsoluteSize
+                    
+                    local inMenu = mousePos.X >= menuPos.X and mousePos.X <= menuPos.X + menuSize.X
+                                and mousePos.Y >= menuPos.Y and mousePos.Y <= menuPos.Y + menuSize.Y
+                    
+                    if not inMenu then
+                        self:closeContextMenu()
+                    end
+                end
             end
-        end
+        end)
     end)
     
     self.contextMenu = menu
