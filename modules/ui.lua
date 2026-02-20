@@ -2203,15 +2203,32 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
-        -- 使用条目名称管理连接
+        -- 断开旧连接并创建新连接（条目复用时nodeKey已变）
         local entryIdx = entry.Name
         if not self.entryConnections then self.entryConnections = {} end
-        if not self.entryConnections[entryIdx] then self.entryConnections[entryIdx] = {} end
         
-        -- 只创建一次连接
-        if #self.entryConnections[entryIdx] == 0 then
-            -- 展开按钮点击
-            table.insert(self.entryConnections[entryIdx], expandBtn.MouseButton1Click:Connect(function()
+        -- 断开并清除旧连接
+        if self.entryConnections[entryIdx] then
+            for _, conn in ipairs(self.entryConnections[entryIdx]) do
+                if conn then pcall(function() conn:Disconnect() end) end
+            end
+        end
+        self.entryConnections[entryIdx] = {}
+        
+        -- 展开按钮点击
+        table.insert(self.entryConnections[entryIdx], expandBtn.MouseButton1Click:Connect(function()
+            local current = self:findNodeByKey(nodeKey)
+            if current and not current.childrenLoaded then
+                self:loadNodeChildren(current)
+            end
+            vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
+            self:flattenNodeTree()
+            self:updateVirtualList()
+        end))
+        
+        -- 整行点击展开
+        if clickArea then
+            table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
                 local current = self:findNodeByKey(nodeKey)
                 if current and not current.childrenLoaded then
                     self:loadNodeChildren(current)
@@ -2220,19 +2237,6 @@ function UI:updateVirtualEntry(entry, node, depth, index)
                 self:flattenNodeTree()
                 self:updateVirtualList()
             end))
-            
-            -- 整行点击展开（如果可展开）
-            if clickArea then
-                table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
-                    local current = self:findNodeByKey(nodeKey)
-                    if current and not current.childrenLoaded then
-                        self:loadNodeChildren(current)
-                    end
-                    vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
-                    self:flattenNodeTree()
-                    self:updateVirtualList()
-                end))
-            end
         end
     else
         expandBtn.Visible = false
@@ -2240,9 +2244,16 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         -- 不可展开时，clickArea用于发送AI信息
         local entryIdx = entry.Name
         if not self.entryConnections then self.entryConnections = {} end
-        if not self.entryConnections[entryIdx] then self.entryConnections[entryIdx] = {} end
         
-        if #self.entryConnections[entryIdx] == 0 and clickArea then
+        -- 断开并清除旧连接
+        if self.entryConnections[entryIdx] then
+            for _, conn in ipairs(self.entryConnections[entryIdx]) do
+                if conn then pcall(function() conn:Disconnect() end) end
+            end
+        end
+        self.entryConnections[entryIdx] = {}
+        
+        if clickArea then
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
                 if node.instance then
                     local objData = {
