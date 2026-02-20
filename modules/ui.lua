@@ -1768,21 +1768,19 @@ function UI:refreshResourceList()
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
-    -- 清除旧的虚拟列表条目和状态
+    -- 重置虚拟列表数据（不销毁条目，让 updateVirtualList 复用）
     local vl = self.virtualList
     if vl then
-        if vl.entries then
-            for _, entry in ipairs(vl.entries) do
-                if entry and entry.Parent then
-                    entry:Destroy()
-                end
+        -- 隐藏所有条目，等待复用
+        if not vl.entries then vl.entries = {} end
+        for _, entry in ipairs(vl.entries) do
+            if entry then
+                entry.Visible = false
+                entry:SetAttribute("currentNodeKey", nil)
             end
         end
-        vl.entries = {}
         vl.flattenedTree = {}
         vl.totalNodes = 0
-        -- 保留展开状态，或重置
-        -- vl.expandedNodes = {}
     end
     
     if not Scanner or not Scanner.cache.typeIndex then
