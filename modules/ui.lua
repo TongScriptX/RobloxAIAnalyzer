@@ -2214,6 +2214,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     
     -- 展开/折叠按钮（使用count判断是否有子节点）
     local hasChildren = node.isFolder and (node.count and node.count > 0 or (node.children and next(node.children)))
+    print("[DEBUG] updateVirtualEntry: node=" .. tostring(node.name) .. ", isFolder=" .. tostring(node.isFolder) .. ", count=" .. tostring(node.count) .. ", hasChildren=" .. tostring(hasChildren))
     if hasChildren then
         local nodeKey = node.path or node.name
         local isExpanded = vl.expandedNodes[nodeKey]
@@ -2237,7 +2238,10 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         -- 箭头按钮点击
         local conn1 = expandBtn.MouseButton1Click:Connect(toggleExpand)
         -- 整行点击也可以展开
-        local conn2 = clickArea.MouseButton1Click:Connect(toggleExpand)
+        local conn2 = nil
+        if clickArea then
+            conn2 = clickArea.MouseButton1Click:Connect(toggleExpand)
+        end
         
         if entryIndex and self.entryConnections[entryIndex] then
             table.insert(self.entryConnections[entryIndex], conn1)
