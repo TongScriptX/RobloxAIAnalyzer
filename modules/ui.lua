@@ -1577,7 +1577,6 @@ function UI:createResourceView()
         {id = "all", text = "全部", icon = "📁"},
         {id = "remotes", text = "Remote", icon = "📤"},
         {id = "scripts", text = "脚本", icon = "📝"},
-        {id = "types", text = "按类型", icon = "🏷️"},
         {id = "search", text = "搜索", icon = "🔍"}
     }
     
@@ -1781,12 +1780,6 @@ function UI:refreshResourceList()
         vl.totalNodes = 0
         -- 保留展开状态，或重置
         -- vl.expandedNodes = {}
-    end
-    
-    -- 类型视图单独处理
-    if self.currentResourceTab == "types" then
-        self:renderTypesView(Scanner)
-        return
     end
     
     if not Scanner or not Scanner.cache.typeIndex then
@@ -2217,11 +2210,14 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         
         -- 展开按钮点击
         table.insert(self.entryConnections[entryIdx], expandBtn.MouseButton1Click:Connect(function()
+            print("[DEBUG] expandBtn点击: " .. tostring(nodeKey))
             local current = self:findNodeByKey(nodeKey)
+            print("[DEBUG] findNodeByKey结果: " .. tostring(current and current.name or "nil"))
             if current and not current.childrenLoaded then
                 self:loadNodeChildren(current)
             end
             vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
+            print("[DEBUG] 展开状态: " .. tostring(vl.expandedNodes[nodeKey]))
             self:flattenNodeTree()
             self:updateVirtualList()
         end))
@@ -2229,11 +2225,14 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         -- 整行点击展开
         if clickArea then
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
+                print("[DEBUG] clickArea点击: " .. tostring(nodeKey))
                 local current = self:findNodeByKey(nodeKey)
+                print("[DEBUG] findNodeByKey结果: " .. tostring(current and current.name or "nil"))
                 if current and not current.childrenLoaded then
                     self:loadNodeChildren(current)
                 end
                 vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
+                print("[DEBUG] 展开状态: " .. tostring(vl.expandedNodes[nodeKey]))
                 self:flattenNodeTree()
                 self:updateVirtualList()
             end))
@@ -2304,104 +2303,6 @@ function UI:clearResourceList()
             child:Destroy()
         end
     end
-end
-
--- 渲染按类型视图
-function UI:renderTypesView(Scanner)
-    if not Scanner or not Scanner.cache.typeIndex then
-        self:addResourceItem("请先扫描游戏资源", "", "", nil, false)
-        return
-    end
-    
-    local types = Scanner:getAllTypes()
-    local maxTypes = 50
-    
-    for i, t in ipairs(types) do
-        if i > maxTypes then break end
-        
-        local item = Instance.new("TextButton", self.resourceList)
-        item.Size = UDim2.new(1, -8, 0, 32)
-        item.BackgroundColor3 = self.Theme.backgroundSecondary
-        item.BorderSizePixel = 0
-        item.Text = ""
-        createCorner(item, 4)
-        
-        -- 类型图标
-        local icon = "📄"
-        if t.name:find("Remote") then icon = "📤"
-        elseif t.name:find("Script") then icon = "📝"
-        elseif t.name:find("Part") then icon = "🧱"
-        elseif t.name:find("Mesh") then icon = "🎨"
-        elseif t.name:find("Sound") then icon = "🔊"
-        elseif t.name:find("Particle") then icon = "✨"
-        elseif t.name:find("Light") then icon = "💡"
-        elseif t.name:find("Camera") then icon = "📷"
-        elseif t.name:find("GUI") or t.name:find("Gui") then icon = "🖥️"
-        elseif t.name:find("Animation") then icon = "🎬"
-        end
-        
-        local iconLabel = Instance.new("TextLabel", item)
-        iconLabel.Size = UDim2.new(0, 24, 1, 0)
-        iconLabel.Position = UDim2.new(0, 8, 0, 0)
-        iconLabel.BackgroundTransparency = 1
-        iconLabel.Text = icon
-        iconLabel.TextSize = 14
-        iconLabel.TextXAlignment = Enum.TextXAlignment.Left
-        
-        local nameLabel = Instance.new("TextLabel", item)
-        nameLabel.Size = UDim2.new(1, -120, 1, 0)
-        nameLabel.Position = UDim2.new(0, 32, 0, 0)
-        nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = t.name
-        nameLabel.TextColor3 = self.Theme.text
-        nameLabel.TextSize = 12
-        nameLabel.Font = Enum.Font.Gotham
-        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-        
-        local countLabel = Instance.new("TextLabel", item)
-        countLabel.Size = UDim2.new(0, 60, 1, 0)
-        countLabel.Position = UDim2.new(1, -68, 0, 0)
-        countLabel.BackgroundTransparency = 1
-        countLabel.Text = tostring(t.count)
-        countLabel.TextColor3 = self.Theme.textSecondary
-        countLabel.TextSize = 11
-        countLabel.Font = Enum.Font.Gotham
-        countLabel.TextXAlignment = Enum.TextXAlignment.Right
-        
-        -- 点击展开该类型
-        item.MouseButton1Click:Connect(function()
-            self:showTypeResources(t.name, Scanner)
-        end)
-    end
-end
-
--- 显示某类型的资源列表（使用虚拟列表）
-function UI:showTypeResources(typeName, Scanner)
-    local resources = Scanner:filterByType(typeName)
-    
-    -- 使用虚拟列表显示
-    local vl = self.virtualList
-    vl.nodeCache = {}
-    vl.flattenedTree = {}
-    vl.expandedNodes = {}
-    
-    -- 直接扁平化资源列表
-    for _, res in ipairs(resources) do
-        table.insert(vl.flattenedTree, {
-            node = {
-                name = res.name,
-                className = res.className,
-                isFolder = false,
-                objData = res
-            },
-            depth = 0
-        })
-    end
-    vl.totalNodes = #vl.flattenedTree
-    
-    -- 更新滚动区域
-    self.resourceList.CanvasSize = UDim2.new(0, 0, 0, vl.totalNodes * vl.entryHeight)
-    self:updateVirtualList()
 end
 
 -- 渲染树形层级
