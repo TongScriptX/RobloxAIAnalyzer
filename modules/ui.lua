@@ -1756,7 +1756,8 @@ end
 
 -- 刷新资源列表显示（虚拟列表 + 树形目录）
 function UI:refreshResourceList()
-    print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab) .. ", 调用栈: " .. debug.traceback("", 2):match("^[^\n]+"))
+    local callerInfo = debug.traceback("", 2):match("^[^\n]+") or "unknown"
+    print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab) .. ", 调用栈: " .. callerInfo)
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
