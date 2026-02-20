@@ -1752,11 +1752,13 @@ end
 
 -- 刷新资源列表显示（虚拟列表 + 树形目录）
 function UI:refreshResourceList()
+    print("[DEBUG] refreshResourceList: 当前标签页 = " .. tostring(self.currentResourceTab))
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local searchQuery = self.resourceSearchBox and self.resourceSearchBox.Text:lower() or ""
     
     -- 清除旧的虚拟列表条目和状态
     local vl = self.virtualList
+    print("[DEBUG] refreshResourceList: vl = " .. tostring(vl) .. ", entries数量 = " .. (vl.entries and #vl.entries or "nil"))
     if vl then
         if vl.entries then
             for _, entry in ipairs(vl.entries) do
@@ -1824,12 +1826,14 @@ end
 
 -- 构建节点树（即时版本：直接使用游戏服务，不遍历缓存）
 function UI:buildNodeTree(resources)
+    print("[DEBUG] buildNodeTree: 开始构建节点树")
     local vl = self.virtualList
     vl.nodeCache = {}
     
     -- 获取Scanner配置的服务列表
     local Scanner = _G.AIAnalyzer and _G.AIAnalyzer.Scanner
     local services = Scanner and Scanner.config and Scanner.config.services or {}
+    print("[DEBUG] buildNodeTree: 服务数量 = " .. #services)
     
     -- 直接从游戏服务创建节点（不遍历资源缓存）
     local serviceNodes = {}
@@ -1861,6 +1865,7 @@ function UI:buildNodeTree(resources)
     end)
     
     vl.nodeCache = serviceNodes
+    print("[DEBUG] buildNodeTree: 完成，节点数量 = " .. #serviceNodes)
 end
 
 -- 懒加载子节点（直接从游戏实例获取）
@@ -1969,6 +1974,7 @@ end
 
 -- 扁平化树用于虚拟列表渲染
 function UI:flattenNodeTree()
+    print("[DEBUG] flattenNodeTree: 开始扁平化")
     local vl = self.virtualList
     vl.flattenedTree = {}
     
@@ -2017,6 +2023,7 @@ function UI:flattenNodeTree()
     -- 更新滚动区域大小
     local canvasHeight = vl.totalNodes * vl.entryHeight
     self.resourceList.CanvasSize = UDim2.new(0, 0, 0, canvasHeight)
+    print("[DEBUG] flattenNodeTree: 完成，总节点数 = " .. vl.totalNodes)
 end
 
 -- 显示虚拟列表消息
@@ -2034,7 +2041,10 @@ end
 -- 更新虚拟列表（核心渲染函数）
 function UI:updateVirtualList()
     local vl = self.virtualList
-    if not vl or not vl.container then return end
+    if not vl or not vl.container then 
+        print("[DEBUG] updateVirtualList: vl或container无效")
+        return 
+    end
     
     local scrollPos = self.resourceList.CanvasPosition.Y
     local viewHeight = self.resourceList.AbsoluteSize.Y
@@ -2047,6 +2057,8 @@ function UI:updateVirtualList()
     local startIndex = math.floor(scrollPos / entryHeight) + 1
     local visibleCount = math.max(20, math.ceil(viewHeight / entryHeight) + 5) -- 至少20个条目
     local endIndex = math.min(startIndex + visibleCount, vl.totalNodes)
+    
+    print("[DEBUG] updateVirtualList: totalNodes=" .. vl.totalNodes .. ", visibleCount=" .. visibleCount .. ", startIndex=" .. startIndex)
     
     -- 确保有足够的条目
     while #vl.entries < visibleCount do
@@ -2145,7 +2157,10 @@ end
 -- 更新虚拟条目内容
 function UI:updateVirtualEntry(entry, node, depth, index)
     -- 防护检查
-    if not entry or not entry.Parent then return end
+    if not entry or not entry.Parent then 
+        print("[DEBUG] updateVirtualEntry: entry无效")
+        return 
+    end
     
     local vl = self.virtualList
     local expandBtn = entry:FindFirstChild("Expand")
@@ -2156,6 +2171,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     
     -- 如果子元素不存在，跳过
     if not expandBtn or not icon or not name or not class then
+        print("[DEBUG] updateVirtualEntry: 子元素缺失")
         return
     end
     
@@ -2191,9 +2207,11 @@ function UI:updateVirtualEntry(entry, node, depth, index)
         expandBtn.Visible = true
         
         local conn = expandBtn.MouseButton1Click:Connect(function()
+            print("[DEBUG] 展开点击: " .. tostring(nodeKey) .. ", childrenLoaded: " .. tostring(node.childrenLoaded))
             -- 懒加载子节点
             if not node.childrenLoaded then
                 self:loadNodeChildren(node)
+                print("[DEBUG] 加载子节点完成, children数量: " .. (node.children and #node.children or "nil"))
             end
             
             vl.expandedNodes[nodeKey] = not vl.expandedNodes[nodeKey]
