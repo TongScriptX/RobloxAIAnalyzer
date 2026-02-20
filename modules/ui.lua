@@ -2117,7 +2117,7 @@ function UI:createVirtualEntry(index)
     expandBtn.TextSize = 10
     expandBtn.Font = Enum.Font.Gotham
     expandBtn.TextColor3 = self.Theme.textMuted
-    expandBtn.ZIndex = 10
+    expandBtn.ZIndex = 2
     
     -- 图标
     local icon = Instance.new("TextLabel", entry)
@@ -2160,7 +2160,7 @@ function UI:createVirtualEntry(index)
     clickArea.Size = UDim2.new(1, 0, 1, 0)
     clickArea.BackgroundTransparency = 1
     clickArea.Text = ""
-    clickArea.ZIndex = 5
+    clickArea.ZIndex = 10
     
     return entry
 end
@@ -2196,18 +2196,21 @@ function UI:updateVirtualEntry(entry, node, depth, index)
     -- 检查是否需要重新绑定（只在节点变化时重新绑定）
     local currentNodeKey = entry:GetAttribute("currentNodeKey")
     local needRebind = (currentNodeKey ~= nodeKey)
-    entry:SetAttribute("currentNodeKey", nodeKey)
     
     -- 展开/折叠按钮（使用count判断是否有子节点）
     local hasChildren = node.isFolder and (node.count and node.count > 0 or (node.children and next(node.children)))
+    
+    print("[DEBUG] node=" .. tostring(node.name) .. ", nodeKey=" .. tostring(nodeKey) .. ", currentNodeKey=" .. tostring(currentNodeKey) .. ", needRebind=" .. tostring(needRebind) .. ", hasChildren=" .. tostring(hasChildren))
 
     if hasChildren then
+        entry:SetAttribute("currentNodeKey", nodeKey)
         local isExpanded = vl.expandedNodes[nodeKey]
         expandBtn.Text = isExpanded and "▼" or "▶"
         expandBtn.Visible = true
         
         -- 只在节点变化时重新绑定连接
         if needRebind and clickArea then
+            print("[DEBUG] 创建连接: entry=" .. tostring(entry.Name) .. ", nodeKey=" .. tostring(nodeKey))
             local entryIdx = entry.Name
             if not self.entryConnections then self.entryConnections = {} end
             
@@ -2221,6 +2224,7 @@ function UI:updateVirtualEntry(entry, node, depth, index)
             
             -- 创建新连接
             table.insert(self.entryConnections[entryIdx], clickArea.MouseButton1Click:Connect(function()
+                print("[DEBUG] 点击触发: key=" .. tostring(entry:GetAttribute("currentNodeKey")))
                 local key = entry:GetAttribute("currentNodeKey")
                 local current = self:findNodeByKey(key)
                 if current and not current.childrenLoaded then
