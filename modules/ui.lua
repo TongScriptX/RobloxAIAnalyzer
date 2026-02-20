@@ -2104,8 +2104,8 @@ function UI:createVirtualEntry(index)
     entry.BorderSizePixel = 0
     entry:SetAttribute("entryIndex", index)
     
-    -- 展开按钮
-    local expandBtn = Instance.new("TextButton", entry)
+    -- 展开按钮（用TextLabel避免阻挡点击）
+    local expandBtn = Instance.new("TextLabel", entry)
     expandBtn.Name = "Expand"
     expandBtn.Size = UDim2.new(0, 18, 1, 0)
     expandBtn.Position = UDim2.new(0, 0, 0, 0)
@@ -2114,7 +2114,7 @@ function UI:createVirtualEntry(index)
     expandBtn.TextSize = 10
     expandBtn.Font = Enum.Font.Gotham
     expandBtn.TextColor3 = self.Theme.textMuted
-    expandBtn.ZIndex = 10  -- 确保在clickArea之上
+    expandBtn.ZIndex = 10
     
     -- 图标
     local icon = Instance.new("TextLabel", entry)
