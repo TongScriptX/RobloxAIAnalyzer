@@ -3624,13 +3624,29 @@ function UI:showFileBrowser(initialPath)
         return
     end
     
+    -- 如果没有指定初始路径，尝试检测执行器支持的路径
+    local startPath = initialPath
+    if not startPath then
+        -- 尝试多种路径格式
+        local testPaths = {"workspace", "scripts", "", "."}
+        for _, testPath in ipairs(testPaths) do
+            local success, result = pcall(exec.listfiles, testPath)
+            if success and result then
+                startPath = testPath
+                break
+            end
+        end
+        -- 如果都不行，默认用空字符串
+        startPath = startPath or ""
+    end
+    
     self:createFileBrowser()
     self.fileBrowserFrame.Visible = true
     self.fileBrowserEditor.Visible = false
     self.fileNameInput.Visible = false
     self.fileBrowserFrame.Size = UDim2.new(0, 400, 0, 350)
     self.fileBrowserSelectedFile = nil
-    self:navigateToFolder(initialPath or "workspace")
+    self:navigateToFolder(startPath)
 end
 
 -- 隐藏文件浏览器
@@ -3649,7 +3665,9 @@ function UI:navigateToFolder(path)
     end
     
     self.fileBrowserCurrentPath = path
-    self.fileBrowserPathLabel.Text = "📂 " .. path
+    -- 显示路径名称，空路径显示为"根目录"
+    local displayName = (path == "" or path == ".") and "根目录" or path
+    self.fileBrowserPathLabel.Text = "📂 " .. displayName
     
     -- 清空列表
     for _, child in ipairs(self.fileBrowserList:GetChildren()) do
@@ -3659,14 +3677,26 @@ function UI:navigateToFolder(path)
     end
     
     -- 返回上一级
-    if path ~= "workspace" then
-        local parentPath = path:match("^(.+)/[^/]+$") or "workspace"
+    if path ~= "" and path ~= "workspace" then
+        local parentPath = path:match("^(.+)/[^/]+$") or ""
         self:addFileBrowserItem("📁 ..", "folder", parentPath, true)
     end
     
     -- 获取文件列表
-    local success, files = pcall(exec.listfiles, path)
-    if not success or not files then
+    local success, filesOrErr = pcall(exec.listfiles, path)
+    if not success then
+        -- 显示具体错误信息
+        local errMsg = tostring(filesOrErr):sub(1, 50)
+        self:addFileBrowserItem("❌ 读取失败: " .. errMsg, "error", nil, false)
+        -- 尝试使用空路径（根目录）
+        if path ~= "" then
+            self:addFileBrowserItem("🔄 尝试打开根目录", "folder", "", true)
+        end
+        return
+    end
+    
+    local files = filesOrErr
+    if not files then
         self:addFileBrowserItem("❌ 无法读取目录", "error", nil, false)
         return
     end
