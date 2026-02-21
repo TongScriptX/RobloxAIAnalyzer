@@ -159,7 +159,8 @@ end
 
 -- 模块加载
 local BASE_URL = "https://raw.githubusercontent.com/TongScriptX/RobloxAIAnalyzer/main"
-local CACHE_BUSTER = "?v=" .. tostring(os.time())
+-- 强制缓存破坏：使用随机数+时间戳
+local CACHE_BUSTER = "?v=2.1.1&_t=" .. tostring(os.time()) .. "_r=" .. tostring(math.random(100000, 999999))
 
 local function loadModule(path)
     local url = BASE_URL .. "/" .. path .. CACHE_BUSTER
