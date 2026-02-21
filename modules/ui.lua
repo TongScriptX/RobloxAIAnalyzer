@@ -685,7 +685,7 @@ function UI:updateStatus(statusText)
 end
 
 -- 显示脚本确认提示（按钮模式）
-function UI:showConfirmationPrompt(description, codePreview)
+function UI:showConfirmationPrompt(description, fullCode)
     self.isConfirming = true
     
     -- 修改输入框显示确认提示
@@ -749,20 +749,20 @@ function UI:showConfirmationPrompt(description, codePreview)
         end
     end)
     
-    -- 添加确认消息
+    -- 添加确认消息（显示完整代码）
     self:addMessage(string.format([[
 ⚠️ **需要确认脚本执行**
 
 📝 描述: %s
 
-📄 代码预览:
+📄 完整代码:
 ```lua
 %s
 ```
 
 请点击下方按钮确认或取消]], 
         description, 
-        codePreview:sub(1, 300) .. (#codePreview > 300 and "..." or "")
+        fullCode or ""
     ), false)
 end
 

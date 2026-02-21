@@ -947,8 +947,8 @@ function App:sendToAI(query)
             -- 检查是否需要确认脚本执行
             if result.needsConfirmation then
                 self.pendingConfirmation = true
-                -- 在输入栏显示确认提示
-                ui:showConfirmationPrompt(result.description, result.codePreview)
+                -- 传递完整代码而不是预览
+                ui:showConfirmationPrompt(result.description, result.code or result.codePreview)
             end
         else
             ui:addMessage("❌ 错误: " .. tostring(err), false)

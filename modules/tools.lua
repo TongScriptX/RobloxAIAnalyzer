@@ -227,11 +227,12 @@ function Tools:waitForConfirmation(description, code)
         code = code
     }
     
-    -- 返回特殊标记，表示需要等待确认
+    -- 返回特殊标记，表示需要等待确认（包含完整代码）
     return {
         needsConfirmation = true,
         description = description,
-        codePreview = code:sub(1, 200) .. (#code > 200 and "..." or "")
+        code = code,  -- 完整代码
+        codePreview = code:sub(1, 200) .. (#code > 200 and "..." or "")  -- 保留预览用于日志
     }
 end
 
@@ -719,9 +720,9 @@ function Tools:formatResult(result)
     if result.needsConfirmation then
         parts[#parts + 1] = "⏳ 需要确认运行脚本:"
         parts[#parts + 1] = "描述: " .. result.description
-        parts[#parts + 1] = "代码预览:"
+        parts[#parts + 1] = "完整代码:"
         parts[#parts + 1] = "```lua"
-        parts[#parts + 1] = result.codePreview
+        parts[#parts + 1] = result.code or result.codePreview
         parts[#parts + 1] = "```"
         parts[#parts + 1] = "[等待用户确认...]"
         return table.concat(parts, "\n")
