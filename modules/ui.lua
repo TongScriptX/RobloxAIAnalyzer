@@ -212,14 +212,14 @@ function UI:createMainWindow()
     
     local statusText = Instance.new("TextLabel", titleBar)
     statusText.Name = "StatusText"
-    statusText.Size = UDim2.new(0, 50, 1, 0)
-    statusText.Position = UDim2.new(1, -75, 0, 0)
+    statusText.Size = UDim2.new(0, 80, 1, 0)
+    statusText.Position = UDim2.new(1, -155, 0, 0)
     statusText.BackgroundTransparency = 1
     statusText.Text = "未连接"
     statusText.TextColor3 = self.Theme.textSecondary
     statusText.TextSize = 11
     statusText.Font = Enum.Font.Gotham
-    statusText.TextXAlignment = Enum.TextXAlignment.Left
+    statusText.TextXAlignment = Enum.TextXAlignment.Right
     
     -- 最小化按钮
     local minBtn = Instance.new("TextButton", titleBar)
