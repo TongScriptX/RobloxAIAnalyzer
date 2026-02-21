@@ -17,7 +17,7 @@ local function createRequestBody(provider, messages, options, tools)
     local body = {
         model = options.model or provider.defaultModel,
         messages = messages,
-        max_tokens = options.maxTokens or (Config and Config.Settings and Config.Settings.maxTokens) or 4096,
+        max_tokens = options.maxTokens or (Config and Config.Settings and Config.Settings.maxTokens) or 8192,
         temperature = options.temperature or (Config and Config.Settings and Config.Settings.temperature) or 0.7,
         stream = false
     }
@@ -413,13 +413,21 @@ function AIClient:chat(userMessage, systemPrompt, options)
         ctx:addAssistantMessage(content)
     end
     
+    -- 检查是否被截断
+    local truncated = false
+    if choice and choice.finish_reason == "length" then
+        truncated = true
+        content = content .. "\n\n⚠️ **响应被截断，请继续提问以获取完整内容**"
+    end
+    
     return {
         content = content,
         reasoning = reasoning,  -- 思考过程（可选）
         model = response.data.model,
         usage = totalUsage,  -- 使用累计的token统计
         provider = provider.name,
-        contextStatus = ctx and ctx:getStatus()
+        contextStatus = ctx and ctx:getStatus(),
+        truncated = truncated
     }
 end
 
