@@ -670,10 +670,19 @@ function UI:hideLoading()
         self.loadingConnection = nil
     end
     
+    -- 如果正在确认脚本，不恢复输入框
+    if self.isConfirming then
+        return
+    end
+    
     -- 恢复输入
-    self.inputBox.PlaceholderText = "输入问题或指令..."
-    self.sendBtn.Text = ">"
-    self.sendBtn.BackgroundColor3 = self.Theme.accent
+    if self.inputBox then
+        self.inputBox.PlaceholderText = "输入问题或指令..."
+    end
+    if self.sendBtn then
+        self.sendBtn.Text = ">"
+        self.sendBtn.BackgroundColor3 = self.Theme.accent
+    end
 end
 
 -- 更新状态显示（用于工具执行时）
@@ -686,6 +695,12 @@ end
 
 -- 显示脚本确认提示（按钮模式）
 function UI:showConfirmationPrompt(description, fullCode)
+    -- 检查必要的UI元素
+    if not self.inputBox or not self.sendBtn then
+        warn("[UI] showConfirmationPrompt: inputBox or sendBtn not found")
+        return
+    end
+    
     self.isConfirming = true
     
     -- 隐藏输入框和发送按钮
@@ -694,7 +709,10 @@ function UI:showConfirmationPrompt(description, fullCode)
     
     -- 获取输入框的父容器
     local inputFrame = self.inputBox.Parent
-    if not inputFrame then return end
+    if not inputFrame then 
+        warn("[UI] showConfirmationPrompt: inputFrame not found")
+        return 
+    end
     
     -- 创建确认按钮容器（放在输入框位置）
     local confirmFrame = Instance.new("Frame", inputFrame)

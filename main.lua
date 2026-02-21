@@ -888,6 +888,12 @@ function App:sendToAI(query)
         return
     end
     
+    -- 防止重复请求
+    if self.isProcessingAI then
+        ui:addMessage("⚠️ 正在处理中，请稍候...", false)
+        return
+    end
+    
     local provider = Config:getCurrentProvider()
     if not provider.apiKey or provider.apiKey == "" then
         ui:addMessage("⚠️ 请先在设置页面配置API Key", false)
@@ -907,6 +913,9 @@ function App:sendToAI(query)
     
     local context = Scanner and Scanner:toAIContext(50) or {}
     
+    -- 设置处理状态
+    self.isProcessingAI = true
+    
     -- 显示加载动画
     ui:showLoading()
     
@@ -916,43 +925,51 @@ function App:sendToAI(query)
             return AIClient:analyzeResources(query, context)
         end)
         
-        -- 隐藏加载动画（总是执行）
-        ui:hideLoading()
-        
         if not success then
+            ui:hideLoading()
+            self.isProcessingAI = false
             ui:addMessage("❌ 请求出错: " .. tostring(resultOrErr), false)
             return
         end
         
-        local result, err = resultOrErr, nil
-        -- pcall 返回的是单个值，需要检查是否是 nil, err 格式
+        local result = resultOrErr
         
-        if result then
-            -- 传递思考过程（如果存在）
-            ui:addMessage(result.content, false, result.reasoning)
-            if result.usage then
-                ui:updateTokenDisplay(result.usage)
-            end
-            -- 显示上下文状态（如果接近阈值）
-            if result.contextStatus and result.contextStatus.usageRatio and result.contextStatus.usageRatio > 0.5 then
-                local status = result.contextStatus
-                local warning = ""
-                if status.usageRatio >= 0.7 then
-                    warning = " ⚠️ 接近上限，建议使用 /compress 压缩"
-                end
-                ui:addMessage(string.format("📊 上下文: %.0f%% (%d/%d tokens)%s", 
-                    status.usageRatio * 100, status.totalTokens, status.maxTokens, warning), false)
-            end
-            
-            -- 检查是否需要确认脚本执行
-            if result.needsConfirmation then
-                self.pendingConfirmation = true
-                -- 传递完整代码而不是预览
-                ui:showConfirmationPrompt(result.description, result.code or result.codePreview)
-            end
+        -- 先处理确认状态，再隐藏loading
+        if result and result.needsConfirmation then
+            self.pendingConfirmation = true
+            -- 先设置确认状态
+            ui.isConfirming = true
+            -- 再隐藏loading（不会恢复输入框，因为isConfirming=true）
+            ui:hideLoading()
+            -- 显示确认提示
+            ui:showConfirmationPrompt(result.description, result.code or result.codePreview)
         else
-            ui:addMessage("❌ 错误: " .. tostring(err), false)
+            -- 正常结束，隐藏loading
+            ui:hideLoading()
+            
+            if result then
+                -- 传递思考过程（如果存在）
+                ui:addMessage(result.content, false, result.reasoning)
+                if result.usage then
+                    ui:updateTokenDisplay(result.usage)
+                end
+                -- 显示上下文状态（如果接近阈值）
+                if result.contextStatus and result.contextStatus.usageRatio and result.contextStatus.usageRatio > 0.5 then
+                    local status = result.contextStatus
+                    local warning = ""
+                    if status.usageRatio >= 0.7 then
+                        warning = " ⚠️ 接近上限，建议使用 /compress 压缩"
+                    end
+                    ui:addMessage(string.format("📊 上下文: %.0f%% (%d/%d tokens)%s", 
+                        status.usageRatio * 100, status.totalTokens, status.maxTokens, warning), false)
+                end
+            else
+                ui:addMessage("❌ 错误: 无响应", false)
+            end
         end
+        
+        -- 清除处理状态
+        self.isProcessingAI = false
     end)
 end
 
