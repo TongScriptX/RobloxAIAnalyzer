@@ -847,45 +847,55 @@ local function markdownToRichText(text)
     text = text:gsub("<", "&lt;")
     text = text:gsub(">", "&gt;")
     
-    -- 处理转义的markdown字符（防止重复解析）
-    -- 先处理复杂的组合格式
-    -- ***粗体斜体*** → <b><i>粗体斜体</i></b>
-    text = text:gsub("%*%*%*(.-)%*%*%*", "<b><i>%1</i></b>")
+    -- 按顺序处理，从复杂到简单
     
-    -- **粗体** → <b>粗体</b>
-    text = text:gsub("%*%*(.-)%*%*", "<b>%1</b>")
+    -- 1. ***粗体斜体*** → <b><i>粗体斜体</i></b>
+    -- 使用更精确的模式，匹配非星号字符
+    text = text:gsub("%*%*%*([^%*]+)%*%*%*", "<b><i>%1</i></b>")
     
-    -- *斜体* → <i>斜体</i>（注意：要避免匹配**）
-    text = text:gsub("([^%*])%*([^%*]-)%*([^%*])", "%1<i>%2</i>%3")
-    text = text:gsub("^%*([^%*]-)%*([^%*])", "<i>%1</i>%2")
-    text = text:gsub("([^%*])%*([^%*]-)%*$", "%1<i>%2</i>")
-    text = text:gsub("^%*([^%*]-)%*$", "<i>%1</i>")
+    -- 2. **粗体** → <b>粗体</b>
+    text = text:gsub("%*%*([^%*]+)%*%*", "<b>%1</b>")
     
-    -- __下划线__ → <u>下划线</u>
-    text = text:gsub("__(.-)__", "<u>%1</u>")
+    -- 3. *斜体* → <i>斜体</i>
+    -- 匹配单个星号包围的非星号内容
+    text = text:gsub("%*([^%*%s][^%*]-[^%*%s])%*", "<i>%1</i>")
+    -- 也匹配单个字符的情况如 *a*
+    text = text:gsub("%*([^%*%s])%*", "<i>%1</i>")
     
-    -- ~~删除线~~ → <s>删除线</s>
-    text = text:gsub("~~(.-)~~", "<s>%1</s>")
+    -- 4. __下划线__ → <u>下划线</u>
+    text = text:gsub("__([^_]+)__", "<u>%1</u>")
     
-    -- ==高亮== → <mark>高亮</mark>
-    text = text:gsub("==(.-)==", '<mark color="#FFD700">%1</mark>')
+    -- 5. ~~删除线~~ → <s>删除线</s>
+    text = text:gsub("~~([^~]+)~~", "<s>%1</s>")
     
-    -- `行内代码` → <font face="Code">`代码`</font>
+    -- 6. ==高亮== → <mark>高亮</mark>
+    text = text:gsub("==([^=]+)==", '<mark color="#FFD700">%1</mark>')
+    
+    -- 7. `行内代码` → 橙色字体
     text = text:gsub("`([^`]+)`", '<font color="#FF9800">%1</font>')
     
-    -- 处理标题 (# 开头)
-    text = text:gsub("^### (.-)$", '<font size="16"><b>%1</b></font>')
-    text = text:gsub("^## (.-)$", '<font size="18"><b>%1</b></font>')
-    text = text:gsub("^# (.-)$", '<font size="20"><b>%1</b></font>')
+    -- 8. 处理标题 (# 开头) - 需要按行处理
+    local lines = {}
+    for line in text:gmatch("[^\n]*") do
+        -- ### 标题
+        if line:match("^###%s+") then
+            line = line:gsub("^###%s+", '<font size="16"><b>') .. "</b></font>"
+        -- ## 标题
+        elseif line:match("^##%s+") then
+            line = line:gsub("^##%s+", '<font size="18"><b>') .. "</b></font>"
+        -- # 标题
+        elseif line:match("^#%s+") then
+            line = line:gsub("^#%s+", '<font size="20"><b>') .. "</b></font>"
+        end
+        -- 列表项
+        if line:match("^%s*%-%s") then
+            line = line:gsub("^(%s*)%-%s", "%1• ")
+        end
+        table.insert(lines, line)
+    end
+    text = table.concat(lines, "\n")
     
-    -- 处理列表项（- 开头）→ 添加缩进和符号
-    text = text:gsub("^(%s*)%- ", "%1• ")
-    
-    -- 处理数字列表
-    text = text:gsub("^(%s*)(%d+)%. ", "%1%2. ")
-    
-    -- 处理链接 [文字](url) → 文字
-    -- Roblox不支持链接，只显示文字
+    -- 9. 处理链接 [文字](url) → 文字
     text = text:gsub("%[([^%]]+)%]%([^%)]+%)", "%1")
     
     return text
