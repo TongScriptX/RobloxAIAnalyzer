@@ -714,6 +714,7 @@ end
 function App:confirmScriptExecution()
     local ui = _G.AIAnalyzer.UI
     local Tools = _G.AIAnalyzer.Tools
+    local AIClient = _G.AIAnalyzer.AIClient
     
     -- 先隐藏确认提示
     ui:hideConfirmationPrompt()
@@ -749,6 +750,7 @@ function App:confirmScriptExecution()
     self.pendingConfirmation = nil
     
     -- 显示结果
+    local resultText
     if result.success then
         local parts = {"✅ 脚本执行成功"}
         if result.executionTime then
@@ -763,9 +765,26 @@ function App:confirmScriptExecution()
                 parts[#parts + 1] = "  " .. line
             end
         end
-        ui:addMessage(table.concat(parts, "\n"), false)
+        resultText = table.concat(parts, "\n")
+        ui:addMessage(resultText, false)
     else
-        ui:addMessage("❌ 脚本执行失败: " .. tostring(result.error or result.result), false)
+        resultText = "❌ 脚本执行失败: " .. tostring(result.error or result.result)
+        ui:addMessage(resultText, false)
+    end
+    
+    -- 将执行结果发送给AI继续对话（如果有AIClient）
+    if AIClient then
+        spawn(function()
+            ui:showLoading()
+            local aiResult, err = AIClient:chat("用户确认执行脚本。执行结果:\n" .. resultText, nil, {})
+            ui:hideLoading()
+            
+            if aiResult and aiResult.content then
+                ui:addMessage(aiResult.content, false, aiResult.reasoning)
+            elseif err then
+                ui:addMessage("⚠️ AI响应失败: " .. tostring(err), false)
+            end
+        end)
     end
 end
 
@@ -773,6 +792,7 @@ end
 function App:cancelScriptExecution()
     local ui = _G.AIAnalyzer.UI
     local Tools = _G.AIAnalyzer.Tools
+    local AIClient = _G.AIAnalyzer.AIClient
     
     -- 隐藏确认提示
     ui:hideConfirmationPrompt()
@@ -793,6 +813,21 @@ function App:cancelScriptExecution()
     
     self.pendingConfirmation = nil
     ui:addMessage("⚠️ 脚本执行已取消", false)
+    
+    -- 通知AI用户取消了执行
+    if AIClient then
+        spawn(function()
+            ui:showLoading()
+            local aiResult, err = AIClient:chat("用户取消了脚本执行。请根据已有信息继续回答或提供其他建议。", nil, {})
+            ui:hideLoading()
+            
+            if aiResult and aiResult.content then
+                ui:addMessage(aiResult.content, false, aiResult.reasoning)
+            elseif err then
+                -- 静默处理错误，不影响用户体验
+            end
+        end)
+    end
 end
 
 function App:showHelp()
