@@ -388,50 +388,63 @@ function Tools:readScript(args, Reader, Scanner)
     -- 先查找脚本
     local scripts = Reader:getAllScripts()
     local nameLower = name:lower()
+    local bestMatch = nil
+    local bestScore = 0
     
     for _, script in ipairs(scripts) do
-        if script.Name:lower():find(nameLower, 1, true) then
-            local data = Reader:readScript(script)
-            if data and data.source then
-                local source = data.source
-                local totalLines = data.lines or 0
+        local scriptName = script.Name:lower()
+        local scriptPath = script:GetFullName():lower()
+        
+        -- 计算匹配分数
+        local score = 0
+        
+        -- 完全匹配名称 = 最高分
+        if scriptName == nameLower then
+            score = 100
+        -- 名称包含查询 = 中等分
+        elseif scriptName:find(nameLower, 1, true) then
+            score = 50
+        end
+        
+        -- 路径匹配加分
+        if scriptPath:find(nameLower, 1, true) then
+            score = score + 30
+        end
+        
+        -- 选择最高分的匹配
+        if score > bestScore then
+            bestScore = score
+            bestMatch = script
+        end
+    end
+    
+    if bestMatch then
+        local data = Reader:readScript(bestMatch)
+        if data and data.source then
+            local source = data.source
+            local totalLines = data.lines or 0
+            
+            -- 处理行范围
+            if startLine or endLine then
+                startLine = startLine or 1
+                endLine = endLine or totalLines
                 
-                -- 处理行范围
-                if startLine or endLine then
-                    startLine = startLine or 1
-                    endLine = endLine or totalLines
-                    
-                    -- 分割成行
-                    local lines = {}
-                    for line in source:gmatch("[^\n]+") do
-                        table.insert(lines, line)
-                    end
-                    
-                    -- 提取指定范围
-                    local rangeLines = {}
-                    for i = startLine, math.min(endLine, #lines) do
-                        table.insert(rangeLines, string.format("%4d: %s", i, lines[i] or ""))
-                    end
-                    
-                    if #rangeLines > 0 then
-                        source = table.concat(rangeLines, "\n")
-                    else
-                        source = "-- No lines in range"
-                    end
-                    
-                    return {
-                        name = data.name,
-                        type = data.className,
-                        path = data.path,
-                        source = source,
-                        size = #source,
-                        lines = totalLines,
-                        lineRange = {
-                            start = startLine,
-                            end_ = math.min(endLine, #lines),
-                            total = #lines
-                        }
-                    }
+                -- 分割成行
+                local lines = {}
+                for line in source:gmatch("[^\n]+") do
+                    table.insert(lines, line)
+                end
+                
+                -- 提取指定范围
+                local rangeLines = {}
+                for i = startLine, math.min(endLine, #lines) do
+                    table.insert(rangeLines, string.format("%4d: %s", i, lines[i] or ""))
+                end
+                
+                if #rangeLines > 0 then
+                    source = table.concat(rangeLines, "\n")
+                else
+                    source = "-- No lines in range"
                 end
                 
                 return {
@@ -440,9 +453,23 @@ function Tools:readScript(args, Reader, Scanner)
                     path = data.path,
                     source = source,
                     size = #source,
-                    lines = totalLines
+                    lines = totalLines,
+                    lineRange = {
+                        start = startLine,
+                        end_ = math.min(endLine, #lines),
+                        total = #lines
+                    }
                 }
             end
+            
+            return {
+                name = data.name,
+                type = data.className,
+                path = data.path,
+                source = source,
+                size = #source,
+                lines = totalLines
+            }
         end
     end
     

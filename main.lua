@@ -715,13 +715,15 @@ function App:confirmScriptExecution()
     local ui = _G.AIAnalyzer.UI
     local Tools = _G.AIAnalyzer.Tools
     
+    -- 先隐藏确认提示
+    ui:hideConfirmationPrompt()
+    
     -- 检查是否是文件浏览器的脚本执行
     if ui.pendingFileExecution then
         local code = ui.pendingFileExecution
         local filePath = ui.fileBrowserSelectedFile or "未命名"
         ui.pendingFileExecution = nil
         self.pendingConfirmation = nil
-        ui:hideConfirmationPrompt()
         
         ui:addMessage("✅ 已确认，正在执行脚本...", false)
         ui:executeFileCode(code, filePath)
@@ -771,6 +773,9 @@ end
 function App:cancelScriptExecution()
     local ui = _G.AIAnalyzer.UI
     local Tools = _G.AIAnalyzer.Tools
+    
+    -- 隐藏确认提示
+    ui:hideConfirmationPrompt()
     
     -- 清除文件浏览器的待执行脚本
     if ui.pendingFileExecution then
