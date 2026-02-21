@@ -684,13 +684,70 @@ function UI:updateStatus(statusText)
     self.inputBox.PlaceholderText = statusText
 end
 
--- 显示脚本确认提示
+-- 显示脚本确认提示（按钮模式）
 function UI:showConfirmationPrompt(description, codePreview)
     self.isConfirming = true
     
     -- 修改输入框显示确认提示
     self.inputBox.PlaceholderText = "⚠️ 确认执行: " .. description
     self.inputBox.Text = ""
+    
+    -- 创建确认按钮容器
+    local confirmFrame = Instance.new("Frame", self.messagesFrame)
+    confirmFrame.Name = "ConfirmationFrame"
+    confirmFrame.Size = UDim2.new(1, -20, 0, 50)
+    confirmFrame.Position = UDim2.new(0, 10, 1, -60)
+    confirmFrame.BackgroundColor3 = self.Theme.backgroundSecondary
+    confirmFrame.BorderSizePixel = 0
+    confirmFrame.ZIndex = 50
+    
+    -- 确认按钮
+    local confirmBtn = Instance.new("TextButton", confirmFrame)
+    confirmBtn.Name = "ConfirmBtn"
+    confirmBtn.Size = UDim2.new(0.5, -5, 1, -10)
+    confirmBtn.Position = UDim2.new(0, 5, 0, 5)
+    confirmBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69) -- 绿色
+    confirmBtn.TextColor3 = Color3.new(1, 1, 1)
+    confirmBtn.Text = "✅ 确认执行"
+    confirmBtn.Font = Enum.Font.GothamBold
+    confirmBtn.TextSize = 14
+    confirmBtn.BorderSizePixel = 0
+    
+    local confirmCorner = Instance.new("UICorner", confirmBtn)
+    confirmCorner.CornerRadius = UDim.new(0, 6)
+    
+    -- 取消按钮
+    local cancelBtn = Instance.new("TextButton", confirmFrame)
+    cancelBtn.Name = "CancelBtn"
+    cancelBtn.Size = UDim2.new(0.5, -5, 1, -10)
+    cancelBtn.Position = UDim2.new(0.5, 0, 0, 5)
+    cancelBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69) -- 红色
+    cancelBtn.TextColor3 = Color3.new(1, 1, 1)
+    cancelBtn.Text = "❌ 取消执行"
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.TextSize = 14
+    cancelBtn.BorderSizePixel = 0
+    
+    local cancelCorner = Instance.new("UICorner", cancelBtn)
+    cancelCorner.CornerRadius = UDim.new(0, 6)
+    
+    -- 保存引用
+    self.confirmationFrame = confirmFrame
+    
+    -- 按钮事件
+    confirmBtn.MouseButton1Click:Connect(function()
+        self:hideConfirmationPrompt()
+        if self.onConfirmCallback then
+            self.onConfirmCallback()
+        end
+    end)
+    
+    cancelBtn.MouseButton1Click:Connect(function()
+        self:hideConfirmationPrompt()
+        if self.onCancelCallback then
+            self.onCancelCallback()
+        end
+    end)
     
     -- 添加确认消息
     self:addMessage(string.format([[
@@ -703,10 +760,20 @@ function UI:showConfirmationPrompt(description, codePreview)
 %s
 ```
 
-请输入 '确认' 执行 或 '取消' 放弃]], 
+请点击下方按钮确认或取消]], 
         description, 
         codePreview:sub(1, 300) .. (#codePreview > 300 and "..." or "")
     ), false)
+end
+
+-- 设置确认回调
+function UI:onConfirm(callback)
+    self.onConfirmCallback = callback
+end
+
+-- 设置取消回调
+function UI:onCancel(callback)
+    self.onCancelCallback = callback
 end
 
 -- 隐藏确认提示
@@ -714,6 +781,12 @@ function UI:hideConfirmationPrompt()
     self.isConfirming = false
     self.inputBox.PlaceholderText = "输入问题或指令..."
     self.inputBox.Text = ""
+    
+    -- 销毁确认按钮容器
+    if self.confirmationFrame then
+        self.confirmationFrame:Destroy()
+        self.confirmationFrame = nil
+    end
 end
 
 -- Markdown解析（主要处理代码块）

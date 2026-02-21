@@ -519,6 +519,16 @@ function App:setupCallbacks()
             self:addSystemMessage("❌ 保存失败: " .. tostring(result))
         end
     end)
+    
+    -- 确认执行回调
+    ui:onConfirm(function()
+        self:confirmScriptExecution()
+    end)
+    
+    -- 取消执行回调
+    ui:onCancel(function()
+        self:cancelScriptExecution()
+    end)
 end
 
 function App:addSystemMessage(text)
@@ -589,9 +599,9 @@ function App:sendMessage()
         return
     end
     
-    -- 如果有待确认的脚本，其他输入视为取消
+    -- 如果有待确认的脚本，提示用户点击按钮
     if self.pendingConfirmation then
-        ui:addMessage("⚠️ 有待确认的脚本，请输入 '确认' 或 '取消'", false)
+        ui:addMessage("⚠️ 请点击确认或取消按钮", false)
         return
     end
     
