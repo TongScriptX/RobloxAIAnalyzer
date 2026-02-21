@@ -659,15 +659,17 @@ function UI:hideLoading()
         self.loadingConnection = nil
     end
     
-    -- 如果正在确认脚本，不恢复输入框
-    if self.isConfirming then
+    -- 如果正在确认脚本但不是修改模式，不恢复输入框
+    if self.isConfirming and not self.isModifyingCode then
         return
     end
     
     -- 恢复输入
     if self.inputBox then
         self.inputBox.TextEditable = true
-        self.inputBox.PlaceholderText = "输入问题或指令..."
+        if not self.isModifyingCode then
+            self.inputBox.PlaceholderText = "输入问题或指令..."
+        end
     end
     if self.sendBtn then
         self.sendBtn.Text = ">"
