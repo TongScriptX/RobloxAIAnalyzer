@@ -839,6 +839,11 @@ function UI:hideConfirmationPrompt()
     end
 end
 
+-- 清除待修改代码信息
+function UI:clearPendingCodeInfo()
+    self.pendingCodeInfo = nil
+end
+
 -- Markdown转Roblox RichText（处理行内格式）
 local function markdownToRichText(text)
     if not text then return "" end
