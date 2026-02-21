@@ -839,11 +839,63 @@ function UI:hideConfirmationPrompt()
     end
 end
 
--- Markdown解析（主要处理代码块）
+-- Markdown转Roblox RichText（处理行内格式）
+local function markdownToRichText(text)
+    if not text then return "" end
+    
+    -- 先转义特殊字符（避免与RichText标签冲突）
+    text = text:gsub("<", "&lt;")
+    text = text:gsub(">", "&gt;")
+    
+    -- 处理转义的markdown字符（防止重复解析）
+    -- 先处理复杂的组合格式
+    -- ***粗体斜体*** → <b><i>粗体斜体</i></b>
+    text = text:gsub("%*%*%*(.-)%*%*%*", "<b><i>%1</i></b>")
+    
+    -- **粗体** → <b>粗体</b>
+    text = text:gsub("%*%*(.-)%*%*", "<b>%1</b>")
+    
+    -- *斜体* → <i>斜体</i>（注意：要避免匹配**）
+    text = text:gsub("([^%*])%*([^%*]-)%*([^%*])", "%1<i>%2</i>%3")
+    text = text:gsub("^%*([^%*]-)%*([^%*])", "<i>%1</i>%2")
+    text = text:gsub("([^%*])%*([^%*]-)%*$", "%1<i>%2</i>")
+    text = text:gsub("^%*([^%*]-)%*$", "<i>%1</i>")
+    
+    -- __下划线__ → <u>下划线</u>
+    text = text:gsub("__(.-)__", "<u>%1</u>")
+    
+    -- ~~删除线~~ → <s>删除线</s>
+    text = text:gsub("~~(.-)~~", "<s>%1</s>")
+    
+    -- ==高亮== → <mark>高亮</mark>
+    text = text:gsub("==(.-)==", '<mark color="#FFD700">%1</mark>')
+    
+    -- `行内代码` → <font face="Code">`代码`</font>
+    text = text:gsub("`([^`]+)`", '<font color="#FF9800">%1</font>')
+    
+    -- 处理标题 (# 开头)
+    text = text:gsub("^### (.-)$", '<font size="16"><b>%1</b></font>')
+    text = text:gsub("^## (.-)$", '<font size="18"><b>%1</b></font>')
+    text = text:gsub("^# (.-)$", '<font size="20"><b>%1</b></font>')
+    
+    -- 处理列表项（- 开头）→ 添加缩进和符号
+    text = text:gsub("^(%s*)%- ", "%1• ")
+    
+    -- 处理数字列表
+    text = text:gsub("^(%s*)(%d+)%. ", "%1%2. ")
+    
+    -- 处理链接 [文字](url) → 文字
+    -- Roblox不支持链接，只显示文字
+    text = text:gsub("%[([^%]]+)%]%([^%)]+%)", "%1")
+    
+    return text
+end
+
+-- Markdown解析（处理代码块和行内格式）
 local function parseMarkdown(text)
     -- 防止nil值
     if not text or type(text) ~= "string" then
-        return {{type = "text", content = tostring(text or "")}}
+        return {{type = "text", content = tostring(text or ""), richText = tostring(text or "")}}
     end
     
     local blocks = {}
@@ -858,7 +910,11 @@ local function parseMarkdown(text)
             if codeStart > pos then
                 local beforeText = text:sub(pos, codeStart - 1)
                 if beforeText:match("%S") then
-                    table.insert(blocks, {type = "text", content = beforeText})
+                    table.insert(blocks, {
+                        type = "text",
+                        content = beforeText,
+                        richText = markdownToRichText(beforeText)
+                    })
                 end
             end
             
@@ -876,21 +932,29 @@ local function parseMarkdown(text)
                 table.insert(blocks, {type = "code", language = lang, content = code})
                 pos = codeEnd + 3
             else
-                table.insert(blocks, {type = "text", content = text:sub(pos)})
+                table.insert(blocks, {
+                    type = "text",
+                    content = text:sub(pos),
+                    richText = markdownToRichText(text:sub(pos))
+                })
                 break
             end
         else
             -- 剩余文本
             local remaining = text:sub(pos)
             if remaining:match("%S") then
-                table.insert(blocks, {type = "text", content = remaining})
+                table.insert(blocks, {
+                    type = "text",
+                    content = remaining,
+                    richText = markdownToRichText(remaining)
+                })
             end
             break
         end
     end
     
     if #blocks == 0 then
-        return {{type = "text", content = text}}
+        return {{type = "text", content = text, richText = markdownToRichText(text)}}
     end
     
     return blocks
@@ -1037,11 +1101,12 @@ function UI:addMessage(text, isUser, reasoning)
     
     for _, block in ipairs(blocks) do
         if block.type == "text" and block.content:match("%S") then
-            -- 文本块
+            -- 文本块（支持RichText）
             local textLabel = Instance.new("TextLabel", container)
             textLabel.Size = UDim2.new(1, 0, 0, 0)
             textLabel.BackgroundTransparency = 1
-            textLabel.Text = block.content
+            textLabel.RichText = true  -- 启用富文本
+            textLabel.Text = block.richText or block.content
             textLabel.TextColor3 = isUser and Color3.new(1, 1, 1) or self.Theme.text
             textLabel.TextSize = 13
             textLabel.Font = Enum.Font.Gotham
