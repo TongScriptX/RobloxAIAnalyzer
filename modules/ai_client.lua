@@ -566,6 +566,31 @@ IMPORTANT RULES:
 3. After getting info, respond directly with useful code/analysis
 4. If you can't find something after 2 searches, tell the user
 
+CODE GENERATION RULES (防止游戏卡顿):
+1. 使用 spawn() 或 task.defer() 包装耗时操作，避免阻塞主线程
+2. 大量数据操作使用 task.wait() 分批处理，每100个元素暂停一次
+3. 避免无限循环，必须使用 while true 时添加 wait() 或 task.wait()
+4. 遍历大量对象时使用 pcall 保护并设置超时
+5. 修改大量实例属性时，分帧执行或使用 RunService.Heartbeat
+6. 复杂脚本建议分步执行，每次只做一件事
+
+Good example:
+```lua
+spawn(function()
+    for i, obj in ipairs(objects) do
+        -- 处理逻辑
+        if i % 100 == 0 then task.wait() end  -- 分批处理
+    end
+end)
+```
+
+Bad example (会卡死游戏):
+```lua
+for i, obj in ipairs(objects) do
+    -- 处理逻辑 (没有任何yield点)
+end
+```
+
 Available tools:
 - search_resources: Search by name/type (use specific keywords)
 - read_script: Read script source code

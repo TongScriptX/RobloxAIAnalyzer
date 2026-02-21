@@ -254,11 +254,13 @@ function Tools:cancelExecution()
     return {cancelled = true}
 end
 
--- 实际运行代码
+-- 实际运行代码（带超时保护）
 function Tools:runCode(code)
     local startTime = tick()
     local output = {}
     local success, result
+    local timeout = 10  -- 10秒超时
+    local timedOut = false
     
     -- 重定向print输出
     local oldPrint = print
@@ -288,7 +290,41 @@ function Tools:runCode(code)
         success = false
         result = "语法错误: " .. tostring(err)
     else
-        success, result = pcall(fn)
+        -- 使用coroutine实现超时
+        local co = coroutine.create(fn)
+        local deadline = startTime + timeout
+        
+        local function checkTimeout()
+            if tick() > deadline then
+                timedOut = true
+                -- 尝试关闭coroutine（不保证成功）
+                coroutine.close(co)
+            end
+        end
+        
+        -- 定期检查超时
+        local checkConnection
+        if game:GetService("RunService").Heartbeat then
+            checkConnection = game:GetService("RunService").Heartbeat:Connect(checkTimeout)
+        end
+        
+        -- 执行
+        local ok, res = coroutine.resume(co)
+        
+        if checkConnection then
+            checkConnection:Disconnect()
+        end
+        
+        if timedOut then
+            success = false
+            result = "执行超时（超过" .. timeout .. "秒），脚本可能包含耗时操作"
+        elseif ok then
+            success = true
+            result = res
+        else
+            success = false
+            result = tostring(res)
+        end
     end
     
     -- 恢复print
@@ -297,12 +333,20 @@ function Tools:runCode(code)
     
     local executionTime = tick() - startTime
     
+    -- 执行时间警告
+    local warning = nil
+    if executionTime > 3 then
+        warning = string.format("⚠️ 执行耗时 %.1f 秒，可能影响游戏流畅度", executionTime)
+    end
+    
     return {
         success = success,
         result = result and tostring(result) or nil,
         output = #output > 0 and output or nil,
         executionTime = executionTime,
-        error = not success and result or nil
+        error = not success and result or nil,
+        warning = warning,
+        timedOut = timedOut
     }
 end
 
@@ -747,10 +791,16 @@ function Tools:formatResult(result)
                     parts[#parts + 1] = "  " .. line
                 end
             end
+            if result.warning then
+                parts[#parts + 1] = result.warning
+            end
         else
             parts[#parts + 1] = "❌ 脚本执行失败"
             if result.error then
                 parts[#parts + 1] = "错误: " .. tostring(result.error)
+            end
+            if result.timedOut then
+                parts[#parts + 1] = "💡 建议: 将复杂脚本拆分成多个小步骤，或使用spawn()异步执行"
             end
         end
         return table.concat(parts, "\n")

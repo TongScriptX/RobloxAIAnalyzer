@@ -703,6 +703,12 @@ function UI:showConfirmationPrompt(description, fullCode)
     
     self.isConfirming = true
     
+    -- 保存当前代码信息用于修改
+    self.pendingCodeInfo = {
+        description = description,
+        code = fullCode
+    }
+    
     -- 隐藏输入框和发送按钮
     self.inputBox.Visible = false
     self.sendBtn.Visible = false
@@ -722,31 +728,46 @@ function UI:showConfirmationPrompt(description, fullCode)
     confirmFrame.BackgroundTransparency = 1
     confirmFrame.ZIndex = 50
     
-    -- 确认按钮
+    -- 确认按钮 (左侧)
     local confirmBtn = Instance.new("TextButton", confirmFrame)
     confirmBtn.Name = "ConfirmBtn"
-    confirmBtn.Size = UDim2.new(0.5, -4, 1, 0)
+    confirmBtn.Size = UDim2.new(1/3, -3, 1, 0)
     confirmBtn.Position = UDim2.new(0, 0, 0, 0)
     confirmBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69) -- 绿色
     confirmBtn.TextColor3 = Color3.new(1, 1, 1)
-    confirmBtn.Text = "✅ 确认执行"
+    confirmBtn.Text = "✅ 执行"
     confirmBtn.Font = Enum.Font.GothamBold
-    confirmBtn.TextSize = 14
+    confirmBtn.TextSize = 13
     confirmBtn.BorderSizePixel = 0
     
     local confirmCorner = Instance.new("UICorner", confirmBtn)
     confirmCorner.CornerRadius = UDim.new(0, 6)
     
-    -- 取消按钮
+    -- 修改按钮 (中间)
+    local modifyBtn = Instance.new("TextButton", confirmFrame)
+    modifyBtn.Name = "ModifyBtn"
+    modifyBtn.Size = UDim2.new(1/3, -3, 1, 0)
+    modifyBtn.Position = UDim2.new(1/3, 2, 0, 0)
+    modifyBtn.BackgroundColor3 = Color3.fromRGB(0, 123, 255) -- 蓝色
+    modifyBtn.TextColor3 = Color3.new(1, 1, 1)
+    modifyBtn.Text = "✏️ 修改"
+    modifyBtn.Font = Enum.Font.GothamBold
+    modifyBtn.TextSize = 13
+    modifyBtn.BorderSizePixel = 0
+    
+    local modifyCorner = Instance.new("UICorner", modifyBtn)
+    modifyCorner.CornerRadius = UDim.new(0, 6)
+    
+    -- 取消按钮 (右侧)
     local cancelBtn = Instance.new("TextButton", confirmFrame)
     cancelBtn.Name = "CancelBtn"
-    cancelBtn.Size = UDim2.new(0.5, -4, 1, 0)
-    cancelBtn.Position = UDim2.new(0.5, 4, 0, 0)
+    cancelBtn.Size = UDim2.new(1/3, -3, 1, 0)
+    cancelBtn.Position = UDim2.new(2/3, 4, 0, 0)
     cancelBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69) -- 红色
     cancelBtn.TextColor3 = Color3.new(1, 1, 1)
-    cancelBtn.Text = "❌ 取消执行"
+    cancelBtn.Text = "❌ 取消"
     cancelBtn.Font = Enum.Font.GothamBold
-    cancelBtn.TextSize = 14
+    cancelBtn.TextSize = 13
     cancelBtn.BorderSizePixel = 0
     
     local cancelCorner = Instance.new("UICorner", cancelBtn)
@@ -761,6 +782,16 @@ function UI:showConfirmationPrompt(description, fullCode)
         if self.onConfirmCallback then
             self.onConfirmCallback()
         end
+    end)
+    
+    modifyBtn.MouseButton1Click:Connect(function()
+        -- 隐藏按钮，恢复输入框让用户输入修改建议
+        confirmFrame.Visible = false
+        self.inputBox.Visible = true
+        self.sendBtn.Visible = true
+        self.inputBox.PlaceholderText = "输入修改建议，例如：添加错误处理、改为异步执行..."
+        self.inputBox.Text = ""
+        self.isModifyingCode = true  -- 标记正在修改代码模式
     end)
     
     cancelBtn.MouseButton1Click:Connect(function()
@@ -781,7 +812,7 @@ function UI:showConfirmationPrompt(description, fullCode)
 %s
 ```
 
-请点击下方按钮确认或取消]], 
+请点击下方按钮：执行/修改/取消]], 
         description, 
         fullCode or ""
     ), false)
@@ -800,6 +831,8 @@ end
 -- 隐藏确认提示
 function UI:hideConfirmationPrompt()
     self.isConfirming = false
+    self.isModifyingCode = false
+    self.pendingCodeInfo = nil
     
     -- 恢复输入框和发送按钮
     self.inputBox.Visible = true

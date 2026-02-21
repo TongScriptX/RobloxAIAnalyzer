@@ -599,6 +599,38 @@ function App:sendMessage()
         return
     end
     
+    -- 如果正在修改代码模式
+    if ui.isModifyingCode and ui.pendingCodeInfo then
+        local codeInfo = ui.pendingCodeInfo
+        local suggestion = text
+        
+        -- 清除修改模式状态
+        ui.isModifyingCode = false
+        ui.isConfirming = false
+        ui:clearPendingCodeInfo()
+        
+        -- 隐藏确认按钮，恢复输入框
+        if ui.confirmationFrame then
+            ui.confirmationFrame:Destroy()
+            ui.confirmationFrame = nil
+        end
+        ui.inputBox.PlaceholderText = "输入问题或指令..."
+        
+        -- 显示用户的修改建议
+        ui:addMessage("📝 修改建议: " .. suggestion, true)
+        
+        -- 构建修改请求发送给AI
+        local modifyPrompt = string.format(
+            "请根据以下修改建议重新生成代码:\n\n**原代码描述:** %s\n\n**原代码:**\n```lua\n%s\n```\n\n**用户修改建议:** %s\n\n请生成修改后的完整代码。",
+            codeInfo.description,
+            codeInfo.code,
+            suggestion
+        )
+        
+        self:sendToAI(modifyPrompt)
+        return
+    end
+    
     -- 如果有待确认的脚本，提示用户点击按钮
     if self.pendingConfirmation then
         ui:addMessage("⚠️ 请点击确认或取消按钮", false)
@@ -765,10 +797,16 @@ function App:confirmScriptExecution()
                 parts[#parts + 1] = "  " .. line
             end
         end
+        if result.warning then
+            parts[#parts + 1] = result.warning
+        end
         resultText = table.concat(parts, "\n")
         ui:addMessage(resultText, false)
     else
         resultText = "❌ 脚本执行失败: " .. tostring(result.error or result.result)
+        if result.timedOut then
+            resultText = resultText .. "\n💡 提示: 复杂脚本建议分步执行或使用spawn()异步"
+        end
         ui:addMessage(resultText, false)
     end
     
