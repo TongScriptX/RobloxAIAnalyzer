@@ -3765,9 +3765,19 @@ function UI:selectFile(path)
     
     self.fileBrowserSelectedFile = path
     
-    -- 将文件路径写入输入框，让AI知道用户选择的文件
+    -- 将文件路径追加到输入框现有文本后面
     if self.inputBox then
-        self.inputBox.Text = "@" .. path
+        local filePathStr = "@" .. path .. " "
+        
+        -- 如果有保存的前置文本，追加到后面
+        if self.textBeforeFileSelect and self.textBeforeFileSelect ~= "" then
+            self.inputBox.Text = self.textBeforeFileSelect .. " " .. filePathStr
+        else
+            self.inputBox.Text = filePathStr
+        end
+        
+        -- 清除保存的前置文本
+        self.textBeforeFileSelect = nil
     end
     
     -- 关闭文件浏览器
@@ -3909,12 +3919,19 @@ end
 
 -- 检查输入框是否触发文件浏览
 function UI:checkFileBrowserTrigger()
+    -- 如果文件浏览器已经打开或刚刚选择完文件，不处理
+    if self.fileBrowserFrame and self.fileBrowserFrame.Visible then
+        return
+    end
+    
     local text = self.inputBox.Text
-    -- 检测 @ 字符
+    -- 检测 @ 字符（文本末尾或光标位置）
     if text:sub(-1) == "@" then
+        -- 保存当前文本（不含@），以便选择文件后追加
+        self.textBeforeFileSelect = text:sub(1, -2)
         self:showFileBrowser()
         -- 移除 @ 字符
-        self.inputBox.Text = text:sub(1, -2)
+        self.inputBox.Text = self.textBeforeFileSelect
     end
 end
 
