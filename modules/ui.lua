@@ -597,6 +597,7 @@ function UI:createChatView()
     inputBox.Font = Enum.Font.Gotham
     inputBox.TextXAlignment = Enum.TextXAlignment.Left
     inputBox.TextWrapped = true
+    inputBox.ClearTextOnFocus = false  -- 防止点击时清除文本
     
     local sendBtn = Instance.new("TextButton", inputFrame)
     sendBtn.Name = "SendButton"
@@ -3767,6 +3768,9 @@ function UI:selectFile(path)
     
     -- 将文件路径追加到输入框现有文本后面
     if self.inputBox then
+        -- 设置标志位，防止触发 checkFileBrowserTrigger
+        self.isSettingFilePath = true
+        
         local filePathStr = "@" .. path .. " "
         
         -- 如果有保存的前置文本，追加到后面
@@ -3776,8 +3780,9 @@ function UI:selectFile(path)
             self.inputBox.Text = filePathStr
         end
         
-        -- 清除保存的前置文本
+        -- 清除保存的前置文本和标志位
         self.textBeforeFileSelect = nil
+        self.isSettingFilePath = nil
     end
     
     -- 关闭文件浏览器
@@ -3919,8 +3924,13 @@ end
 
 -- 检查输入框是否触发文件浏览
 function UI:checkFileBrowserTrigger()
-    -- 如果文件浏览器已经打开或刚刚选择完文件，不处理
+    -- 如果文件浏览器已经打开或正在选择文件，不处理
     if self.fileBrowserFrame and self.fileBrowserFrame.Visible then
+        return
+    end
+    
+    -- 如果正在设置文件路径，跳过
+    if self.isSettingFilePath then
         return
     end
     
