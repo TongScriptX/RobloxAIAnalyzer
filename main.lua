@@ -774,16 +774,34 @@ function App:confirmScriptExecution()
     
     -- 将执行结果发送给AI继续对话（如果有AIClient）
     if AIClient then
+        -- 设置处理状态
+        self.isProcessingAI = true
+        ui:showLoading()
+        
         spawn(function()
-            ui:showLoading()
             local aiResult, err = AIClient:chat("用户确认执行脚本。执行结果:\n" .. resultText, nil, {})
-            ui:hideLoading()
             
-            if aiResult and aiResult.content then
-                ui:addMessage(aiResult.content, false, aiResult.reasoning)
-            elseif err then
-                ui:addMessage("⚠️ AI响应失败: " .. tostring(err), false)
+            -- 检查是否需要再次确认
+            if aiResult and aiResult.needsConfirmation then
+                -- AI又请求执行脚本，需要再次确认
+                self.pendingConfirmation = true
+                ui.isConfirming = true
+                ui:hideLoading()
+                ui:showConfirmationPrompt(aiResult.description, aiResult.code or aiResult.codePreview)
+            else
+                ui:hideLoading()
+                
+                if aiResult and aiResult.content then
+                    ui:addMessage(aiResult.content, false, aiResult.reasoning)
+                    if aiResult.usage then
+                        ui:updateTokenDisplay(aiResult.usage)
+                    end
+                elseif err then
+                    ui:addMessage("⚠️ AI响应失败: " .. tostring(err), false)
+                end
             end
+            
+            self.isProcessingAI = false
         end)
     end
 end
@@ -816,16 +834,27 @@ function App:cancelScriptExecution()
     
     -- 通知AI用户取消了执行
     if AIClient then
+        self.isProcessingAI = true
+        ui:showLoading()
+        
         spawn(function()
-            ui:showLoading()
             local aiResult, err = AIClient:chat("用户取消了脚本执行。请根据已有信息继续回答或提供其他建议。", nil, {})
-            ui:hideLoading()
             
-            if aiResult and aiResult.content then
-                ui:addMessage(aiResult.content, false, aiResult.reasoning)
-            elseif err then
-                -- 静默处理错误，不影响用户体验
+            -- 检查是否需要再次确认
+            if aiResult and aiResult.needsConfirmation then
+                self.pendingConfirmation = true
+                ui.isConfirming = true
+                ui:hideLoading()
+                ui:showConfirmationPrompt(aiResult.description, aiResult.code or aiResult.codePreview)
+            else
+                ui:hideLoading()
+                
+                if aiResult and aiResult.content then
+                    ui:addMessage(aiResult.content, false, aiResult.reasoning)
+                end
             end
+            
+            self.isProcessingAI = false
         end)
     end
 end
