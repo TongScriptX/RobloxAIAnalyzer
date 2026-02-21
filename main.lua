@@ -621,7 +621,7 @@ function App:sendMessage()
         
         -- 构建修改请求发送给AI
         local modifyPrompt = string.format(
-            "请根据以下修改建议重新生成代码:\n\n**原代码描述:** %s\n\n**原代码:**\n```lua\n%s\n```\n\n**用户修改建议:** %s\n\n请生成修改后的完整代码。",
+            "请根据以下修改建议重新生成代码:\n\n**原代码描述:** %s\n\n**原代码:**\n```lua\n%s\n```\n\n**用户修改建议:** %s\n\n**重要规则:**\n1. 只根据用户的修改建议修改代码，不要添加额外的优化或改进\n2. 生成修改后的完整代码后立即停止，等待用户确认执行\n3. 不要提供'进一步优化建议'或'其他改进'\n\n请生成修改后的完整代码：",
             codeInfo.description,
             codeInfo.code,
             suggestion

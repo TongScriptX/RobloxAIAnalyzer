@@ -575,6 +575,12 @@ CODE GENERATION RULES (防止游戏卡顿):
 5. 修改大量实例属性时，分帧执行或使用 RunService.Heartbeat
 6. 复杂脚本建议分步执行，每次只做一件事
 
+CODE EXECUTION RULES (重要):
+1. 生成代码后，等待用户确认执行，不要继续生成更多代码
+2. 如果用户提出修改建议，只生成修改后的代码，不要再添加额外优化
+3. 代码生成后立即停止，让用户有机会确认或修改
+4. 不要在用户确认前提供"进一步优化"或"改进建议"
+
 Good example:
 ```lua
 spawn(function()
@@ -598,6 +604,7 @@ Available tools:
 - get_remote_info: Get Remote details
 - list_resources: List all resources of a type
 - search_in_script: Search text/code inside scripts (use to find specific functions, variables, strings)
+- get_console_output: Read console output logs (for debugging)
 
 Be concise. Generate working Lua code when asked. Respond in Chinese.]]
 
