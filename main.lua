@@ -167,24 +167,22 @@ local function loadModule(path)
     
     local ok, res = pcall(httpGet, url)
     if not ok or not res or type(res) ~= "string" or #res <= 10 then
-        warn("[AI CLI] loadModule: HTTP请求失败 - " .. path)
         return nil
     end
     
     if res:sub(1, 1) == "<" then 
-        warn("[AI CLI] loadModule: 响应是HTML - " .. path)
         return nil
     end
     
     local fn, err = loadstring(res)
     if not fn then
-        warn("[AI CLI] loadModule: 语法错误 - " .. path .. " - " .. tostring(err))
+        warn("[AI CLI] 模块语法错误: " .. path .. " - " .. tostring(err))
         return nil
     end
     
     local ok3, mod = pcall(fn)
     if not ok3 then
-        warn("[AI CLI] loadModule: 执行错误 - " .. path .. " - " .. tostring(mod))
+        warn("[AI CLI] 模块执行错误: " .. path .. " - " .. tostring(mod))
         return nil
     end
     
@@ -279,23 +277,13 @@ function App:init()
         local m = loadModule(mod.path)
         if m then
             _G.AIAnalyzer[mod.key] = m
-            print("[AI CLI] 模块加载成功: " .. mod.name)
         else
             if mod.required then
                 self:hideLoadingUI()
                 warn("[AI CLI] " .. mod.name .. " 加载失败（必需模块）")
                 return
-            else
-                warn("[AI CLI] " .. mod.name .. " 加载失败（可选模块）")
             end
         end
-    end
-    
-    -- 调试：验证Tools模块
-    if _G.AIAnalyzer.Tools then
-        print("[AI CLI] Tools模块已加载, definitions数量: " .. tostring(_G.AIAnalyzer.Tools.definitions and #_G.AIAnalyzer.Tools.definitions or "nil"))
-    else
-        warn("[AI CLI] Tools模块未加载!")
     end
     
     local cfg = _G.AIAnalyzer.Config
