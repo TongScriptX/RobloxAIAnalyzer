@@ -170,7 +170,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     ["search_in_script"] = "🔍 正在搜索脚本内容...",
                     ["run_script"] = "⚡ 正在执行脚本...",
                     ["get_game_info"] = "🎮 正在获取游戏信息...",
-                    ["list_instances"] = "📋 正在列出实例..."
+                    ["list_instances"] = "📋 正在列出实例...",
+                    ["get_console_output"] = "📋 正在读取控制台日志..."
                 }
                 UI:updateToolStatus(statusMap[toolName] or ("🔧 执行: " .. toolName))
             end

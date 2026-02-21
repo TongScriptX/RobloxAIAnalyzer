@@ -141,6 +141,32 @@ Tools.definitions = {
                 required = {"code", "description"}
             }
         }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "get_console_output",
+            description = "读取Roblox控制台的所有输出日志。可以获取print、warn、error等输出信息，用于调试和分析游戏行为。",
+            parameters = {
+                type = "object",
+                properties = {
+                    filter = {
+                        type = "string",
+                        description = "可选：过滤关键词，只返回包含该关键词的日志"
+                    },
+                    max_entries = {
+                        type = "integer",
+                        description = "最大返回条数，默认50"
+                    },
+                    log_type = {
+                        type = "string",
+                        enum = {"all", "output", "warn", "error", "info"},
+                        description = "日志类型过滤：output(print输出)、warn(警告)、error(错误)、info(信息)、all(全部)"
+                    }
+                },
+                required = {}
+            }
+        }
     }
 }
 
@@ -367,6 +393,8 @@ function Tools:execute(toolName, args, context)
         return self:searchInScript(args, Reader, Scanner)
     elseif toolName == "run_script" then
         return self:runScript(args)
+    elseif toolName == "get_console_output" then
+        return self:getConsoleOutput(args)
     end
     
     return {error = "Unknown tool: " .. toolName}
@@ -734,6 +762,105 @@ function Tools:runScript(args)
     end
 end
 
+-- 获取控制台输出
+function Tools:getConsoleOutput(args)
+    local filter = args.filter
+    local maxEntries = args.max_entries or 50
+    local logType = args.log_type or "all"
+    
+    -- 获取LogService
+    local LogService = game:GetService("LogService")
+    if not LogService then
+        return {error = "无法访问LogService"}
+    end
+    
+    -- 获取日志历史
+    local success, logHistory = pcall(function()
+        return LogService:GetLogHistory()
+    end)
+    
+    if not success then
+        return {error = "无法获取日志历史: " .. tostring(logHistory)}
+    end
+    
+    -- 日志类型映射
+    local typeMap = {
+        ["all"] = nil,  -- 不过滤
+        ["output"] = Enum.MessageType.MessageOutput,
+        ["warn"] = Enum.MessageType.MessageWarning,
+        ["error"] = Enum.MessageType.MessageError,
+        ["info"] = Enum.MessageType.MessageInfo
+    }
+    
+    local targetType = typeMap[logType]
+    
+    -- 过滤日志
+    local filteredLogs = {}
+    local filterLower = filter and filter:lower() or nil
+    
+    for _, logEntry in ipairs(logHistory) do
+        -- 类型过滤
+        if targetType and logEntry.messageType ~= targetType then
+            goto continue
+        end
+        
+        -- 关键词过滤
+        if filterLower then
+            local messageLower = logEntry.message:lower()
+            if not messageLower:find(filterLower, 1, true) then
+                goto continue
+            end
+        end
+        
+        table.insert(filteredLogs, {
+            type = tostring(logEntry.messageType):gsub("Enum%.MessageType%.", ""),
+            message = logEntry.message,
+            timestamp = logEntry.timestamp
+        })
+        
+        ::continue::
+    end
+    
+    -- 限制数量（取最近的）
+    local totalLogs = #filteredLogs
+    if #filteredLogs > maxEntries then
+        local startIndex = #filteredLogs - maxEntries + 1
+        local trimmed = {}
+        for i = startIndex, #filteredLogs do
+            table.insert(trimmed, filteredLogs[i])
+        end
+        filteredLogs = trimmed
+    end
+    
+    -- 格式化输出
+    local formattedLogs = {}
+    for i, log in ipairs(filteredLogs) do
+        local typeIcon = "📝"
+        if log.type == "MessageWarning" then typeIcon = "⚠️"
+        elseif log.type == "MessageError" then typeIcon = "❌"
+        elseif log.type == "MessageInfo" then typeIcon = "ℹ️"
+        end
+        
+        -- 截断过长的消息
+        local msg = log.message
+        if #msg > 500 then
+            msg = msg:sub(1, 500) .. "...(截断)"
+        end
+        
+        table.insert(formattedLogs, string.format("%s [%s] %s", typeIcon, log.type, msg))
+    end
+    
+    return {
+        success = true,
+        totalLogs = totalLogs,
+        returnedLogs = #filteredLogs,
+        filter = filter,
+        logType = logType,
+        logs = formattedLogs,
+        rawLogs = filteredLogs  -- 原始数据供程序使用
+    }
+end
+
 -- 生成Remote调用示例
 function Tools:generateRemoteExample(remote)
     local varName = remote.name:gsub("%s+", "_"):gsub("[^%w_]", "")
@@ -872,6 +999,19 @@ function Tools:formatResult(result)
             end
         end
         parts[#parts + 1] = string.format("Total objects scanned: %d", result.totalObjects or 0)
+    elseif result.logs then
+        -- 控制台输出结果
+        parts[#parts + 1] = string.format("📋 控制台日志 (共 %d 条，返回 %d 条)", result.totalLogs, result.returnedLogs)
+        if result.filter then
+            parts[#parts + 1] = "过滤关键词: " .. result.filter
+        end
+        if result.logType and result.logType ~= "all" then
+            parts[#parts + 1] = "日志类型: " .. result.logType
+        end
+        parts[#parts + 1] = ""
+        for _, log in ipairs(result.logs) do
+            parts[#parts + 1] = log
+        end
     end
     
     return table.concat(parts, "\n")
