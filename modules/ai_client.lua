@@ -89,9 +89,24 @@ function AIClient:chat(userMessage, systemPrompt, options)
     -- 获取工具定义
     local tools = Tools and Tools.definitions
     
+    -- 检查提供商是否支持函数调用
+    local supportsFunctionCall = provider.supportsFunctionCall ~= false  -- 默认支持
+    if not supportsFunctionCall then
+        print("[AI CLI] 警告: 当前提供商 " .. provider.name .. " 可能不支持函数调用")
+    end
+    
+    -- 调试：输出工具数量
+    print("[AI CLI] 工具定义数量: " .. tostring(tools and #tools or 0))
+    print("[AI CLI] 提供商: " .. provider.name .. " | 模型: " .. (options.model or provider.defaultModel))
+    
     local url = provider.baseUrl .. provider.endpoint
     local body = createRequestBody(provider, messages, options, tools)
     local headers = createHeaders(provider)
+    
+    -- 调试：输出请求体（截断）
+    local bodyJson = HttpService:JSONEncode(body)
+    print("[AI CLI] 请求体长度: " .. #bodyJson .. " 字节")
+    print("[AI CLI] 包含tools字段: " .. tostring(body.tools ~= nil))
     
     local response = Http:jsonRequest(url, "POST", body, headers)
     
@@ -115,6 +130,17 @@ function AIClient:chat(userMessage, systemPrompt, options)
     end
     
     local assistantMessage = choice.message
+    
+    -- 调试：输出响应信息
+    print("[AI CLI] 响应finish_reason: " .. tostring(choice.finish_reason))
+    print("[AI CLI] 响应包含tool_calls: " .. tostring(assistantMessage.tool_calls ~= nil))
+    if assistantMessage.tool_calls then
+        print("[AI CLI] tool_calls数量: " .. #assistantMessage.tool_calls)
+    end
+    if assistantMessage.content and #assistantMessage.content > 0 then
+        print("[AI CLI] 响应内容长度: " .. #assistantMessage.content .. " 字节")
+        print("[AI CLI] 响应内容预览: " .. assistantMessage.content:sub(1, 200))
+    end
     
     -- 累计所有请求的token使用量
     local totalUsage = {

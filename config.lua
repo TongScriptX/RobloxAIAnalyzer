@@ -13,7 +13,8 @@ Config.Providers = {
         defaultModel = "deepseek-chat",
         contextWindow = 64000,
         outputLimit = 4096,
-        apiKey = ""
+        apiKey = "",
+        supportsFunctionCall = true  -- 支持函数调用
     },
     OpenAI = {
         name = "OpenAI",
@@ -23,7 +24,8 @@ Config.Providers = {
         defaultModel = "gpt-4o-mini",
         contextWindow = 128000,
         outputLimit = 4096,
-        apiKey = ""
+        apiKey = "",
+        supportsFunctionCall = true  -- 支持函数调用
     },
     iFlow = {
         name = "其他",
@@ -46,7 +48,8 @@ Config.Providers = {
         contextWindow = 128000,
         outputLimit = 4096,
         apiKey = "",
-        description = "OpenAI 兼容接口"
+        description = "OpenAI 兼容接口",
+        supportsFunctionCall = true  -- 假设支持，需要测试验证
     }
 }
 
