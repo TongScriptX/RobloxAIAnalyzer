@@ -688,24 +688,27 @@ end
 function UI:showConfirmationPrompt(description, fullCode)
     self.isConfirming = true
     
-    -- 修改输入框显示确认提示
-    self.inputBox.PlaceholderText = "⚠️ 确认执行: " .. description
-    self.inputBox.Text = ""
+    -- 隐藏输入框和发送按钮
+    self.inputBox.Visible = false
+    self.sendBtn.Visible = false
     
-    -- 创建确认按钮容器
-    local confirmFrame = Instance.new("Frame", self.messagesFrame)
+    -- 获取输入框的父容器
+    local inputFrame = self.inputBox.Parent
+    if not inputFrame then return end
+    
+    -- 创建确认按钮容器（放在输入框位置）
+    local confirmFrame = Instance.new("Frame", inputFrame)
     confirmFrame.Name = "ConfirmationFrame"
-    confirmFrame.Size = UDim2.new(1, -20, 0, 50)
-    confirmFrame.Position = UDim2.new(0, 10, 1, -60)
-    confirmFrame.BackgroundColor3 = self.Theme.backgroundSecondary
-    confirmFrame.BorderSizePixel = 0
+    confirmFrame.Size = UDim2.new(1, 0, 1, 0)
+    confirmFrame.Position = UDim2.new(0, 0, 0, 0)
+    confirmFrame.BackgroundTransparency = 1
     confirmFrame.ZIndex = 50
     
     -- 确认按钮
     local confirmBtn = Instance.new("TextButton", confirmFrame)
     confirmBtn.Name = "ConfirmBtn"
-    confirmBtn.Size = UDim2.new(0.5, -5, 1, -10)
-    confirmBtn.Position = UDim2.new(0, 5, 0, 5)
+    confirmBtn.Size = UDim2.new(0.5, -4, 1, 0)
+    confirmBtn.Position = UDim2.new(0, 0, 0, 0)
     confirmBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69) -- 绿色
     confirmBtn.TextColor3 = Color3.new(1, 1, 1)
     confirmBtn.Text = "✅ 确认执行"
@@ -719,8 +722,8 @@ function UI:showConfirmationPrompt(description, fullCode)
     -- 取消按钮
     local cancelBtn = Instance.new("TextButton", confirmFrame)
     cancelBtn.Name = "CancelBtn"
-    cancelBtn.Size = UDim2.new(0.5, -5, 1, -10)
-    cancelBtn.Position = UDim2.new(0.5, 0, 0, 5)
+    cancelBtn.Size = UDim2.new(0.5, -4, 1, 0)
+    cancelBtn.Position = UDim2.new(0.5, 4, 0, 0)
     cancelBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69) -- 红色
     cancelBtn.TextColor3 = Color3.new(1, 1, 1)
     cancelBtn.Text = "❌ 取消执行"
@@ -779,6 +782,10 @@ end
 -- 隐藏确认提示
 function UI:hideConfirmationPrompt()
     self.isConfirming = false
+    
+    -- 恢复输入框和发送按钮
+    self.inputBox.Visible = true
+    self.sendBtn.Visible = true
     self.inputBox.PlaceholderText = "输入问题或指令..."
     self.inputBox.Text = ""
     
