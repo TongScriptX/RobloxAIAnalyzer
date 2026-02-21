@@ -3543,6 +3543,13 @@ end
 
 -- 显示文件浏览器
 function UI:showFileBrowser(initialPath)
+    -- 先检查执行器是否支持文件浏览
+    local exec = _G.AIAnalyzer and _G.AIAnalyzer.Executor
+    if not exec or not exec.listfiles then
+        self:addMessage("⚠️ 当前执行器不支持文件浏览功能", false)
+        return
+    end
+    
     self:createFileBrowser()
     self.fileBrowserFrame.Visible = true
     self.fileBrowserEditor.Visible = false
@@ -3562,8 +3569,8 @@ end
 -- 导航到文件夹
 function UI:navigateToFolder(path)
     local exec = _G.AIAnalyzer and _G.AIAnalyzer.Executor
-    if not exec or not exec.listfiles then
-        self:addMessage("⚠️ 当前执行器不支持文件浏览", false)
+    if not exec then
+        self:hideFileBrowser()
         return
     end
     
