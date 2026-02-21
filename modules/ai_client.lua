@@ -134,8 +134,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
         end
     end
     
-    -- 处理工具调用（循环处理多次工具调用）
-    local maxIterations = 10
+    -- 处理工具调用（循环处理多次工具调用，无限制直到AI返回最终回复）
+    local maxIterations = 100  -- 设置一个较高的上限作为安全保护
     local iteration = 0
     local lastToolResults = {}
     

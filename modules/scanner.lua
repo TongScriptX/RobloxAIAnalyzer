@@ -163,7 +163,7 @@ local function scanServiceBatch(rootInstance, rootPath, results, counters, seenI
             for _, child in ipairs(children) do
                 table.insert(queue, {
                     instance = child,
-                    path = item.path .. "." .. instance.Name,
+                    path = item.path .. "." .. child.Name,  -- 修复：使用child.Name
                     depth = item.depth + 1
                 })
             end
