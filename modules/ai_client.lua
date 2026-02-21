@@ -44,6 +44,15 @@ function AIClient:chat(userMessage, systemPrompt, options)
     local Config, Http, Tools, Scanner, Reader, ContextManager, UI = getDeps()
     options = options or {}
     
+    -- 调试：输出依赖模块状态
+    print("[AI CLI DEBUG] Config: " .. tostring(Config ~= nil))
+    print("[AI CLI DEBUG] Http: " .. tostring(Http ~= nil))
+    print("[AI CLI DEBUG] Tools: " .. tostring(Tools ~= nil))
+    print("[AI CLI DEBUG] Tools.definitions: " .. tostring(Tools and Tools.definitions ~= nil))
+    if Tools and Tools.definitions then
+        print("[AI CLI DEBUG] Tools.definitions数量: " .. #Tools.definitions)
+    end
+    
     if not Config then
         return nil, "Config module not loaded"
     end

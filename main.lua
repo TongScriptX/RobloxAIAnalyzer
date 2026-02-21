@@ -268,13 +268,23 @@ function App:init()
         local m = loadModule(mod.path)
         if m then
             _G.AIAnalyzer[mod.key] = m
+            print("[AI CLI] 模块加载成功: " .. mod.name)
         else
             if mod.required then
                 self:hideLoadingUI()
                 warn("[AI CLI] " .. mod.name .. " 加载失败（必需模块）")
                 return
+            else
+                warn("[AI CLI] " .. mod.name .. " 加载失败（可选模块）")
             end
         end
+    end
+    
+    -- 调试：验证Tools模块
+    if _G.AIAnalyzer.Tools then
+        print("[AI CLI] Tools模块已加载, definitions数量: " .. tostring(_G.AIAnalyzer.Tools.definitions and #_G.AIAnalyzer.Tools.definitions or "nil"))
+    else
+        warn("[AI CLI] Tools模块未加载!")
     end
     
     local cfg = _G.AIAnalyzer.Config
