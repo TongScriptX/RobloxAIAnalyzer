@@ -166,16 +166,26 @@ local function loadModule(path)
     
     local ok, res = pcall(httpGet, url)
     if not ok or not res or type(res) ~= "string" or #res <= 10 then
+        warn("[AI CLI] loadModule: HTTP请求失败 - " .. path)
         return nil
     end
     
-    if res:sub(1, 1) == "<" then return nil end
+    if res:sub(1, 1) == "<" then 
+        warn("[AI CLI] loadModule: 响应是HTML - " .. path)
+        return nil
+    end
     
     local fn, err = loadstring(res)
-    if not fn then return nil end
+    if not fn then
+        warn("[AI CLI] loadModule: 语法错误 - " .. path .. " - " .. tostring(err))
+        return nil
+    end
     
     local ok3, mod = pcall(fn)
-    if not ok3 then return nil end
+    if not ok3 then
+        warn("[AI CLI] loadModule: 执行错误 - " .. path .. " - " .. tostring(mod))
+        return nil
+    end
     
     return mod
 end
