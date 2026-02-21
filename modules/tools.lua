@@ -799,26 +799,28 @@ function Tools:getConsoleOutput(args)
     local filterLower = filter and filter:lower() or nil
     
     for _, logEntry in ipairs(logHistory) do
+        local shouldInclude = true
+        
         -- 类型过滤
         if targetType and logEntry.messageType ~= targetType then
-            goto continue
+            shouldInclude = false
         end
         
         -- 关键词过滤
-        if filterLower then
+        if shouldInclude and filterLower then
             local messageLower = logEntry.message:lower()
             if not messageLower:find(filterLower, 1, true) then
-                goto continue
+                shouldInclude = false
             end
         end
         
-        table.insert(filteredLogs, {
-            type = tostring(logEntry.messageType):gsub("Enum%.MessageType%.", ""),
-            message = logEntry.message,
-            timestamp = logEntry.timestamp
-        })
-        
-        ::continue::
+        if shouldInclude then
+            table.insert(filteredLogs, {
+                type = tostring(logEntry.messageType):gsub("Enum%.MessageType%.", ""),
+                message = logEntry.message,
+                timestamp = logEntry.timestamp
+            })
+        end
     end
     
     -- 限制数量（取最近的）
