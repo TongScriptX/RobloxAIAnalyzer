@@ -174,11 +174,20 @@ function UI:createMainWindow()
     titleText.TextXAlignment = Enum.TextXAlignment.Left
     titleText.TextScaled = true
     
+    -- 连接状态指示器（小圆点）
+    local statusIndicator = Instance.new("Frame", titleBar)
+    statusIndicator.Name = "StatusIndicator"
+    statusIndicator.Size = UDim2.new(0, 8, 0, 8)
+    statusIndicator.Position = UDim2.new(1, -140, 0.5, -4)
+    statusIndicator.BackgroundColor3 = self.Theme.warning
+    statusIndicator.BorderSizePixel = 0
+    createCorner(statusIndicator, 4)
+    
     -- Token显示区域
     local tokenDisplay = Instance.new("Frame", titleBar)
     tokenDisplay.Name = "TokenDisplay"
-    tokenDisplay.Size = UDim2.new(0, 80, 0, 22)
-    tokenDisplay.Position = UDim2.new(1, -175, 0.5, -11)
+    tokenDisplay.Size = UDim2.new(0, 90, 0, 22)
+    tokenDisplay.Position = UDim2.new(1, -130, 0.5, -11)
     tokenDisplay.BackgroundColor3 = self.Theme.backgroundTertiary
     tokenDisplay.BorderSizePixel = 0
     createCorner(tokenDisplay, 4)
@@ -200,26 +209,6 @@ function UI:createMainWindow()
     tokenText.TextSize = 10
     tokenText.Font = Enum.Font.Gotham
     tokenText.TextXAlignment = Enum.TextXAlignment.Left
-    
-    -- 状态指示器
-    local statusIndicator = Instance.new("Frame", titleBar)
-    statusIndicator.Name = "StatusIndicator"
-    statusIndicator.Size = UDim2.new(0, 10, 0, 10)
-    statusIndicator.Position = UDim2.new(1, -90, 0.5, -5)
-    statusIndicator.BackgroundColor3 = self.Theme.warning
-    statusIndicator.BorderSizePixel = 0
-    createCorner(statusIndicator, 5)
-    
-    local statusText = Instance.new("TextLabel", titleBar)
-    statusText.Name = "StatusText"
-    statusText.Size = UDim2.new(0, 80, 1, 0)
-    statusText.Position = UDim2.new(1, -155, 0, 0)
-    statusText.BackgroundTransparency = 1
-    statusText.Text = "未连接"
-    statusText.TextColor3 = self.Theme.textSecondary
-    statusText.TextSize = 11
-    statusText.Font = Enum.Font.Gotham
-    statusText.TextXAlignment = Enum.TextXAlignment.Right
     
     -- 最小化按钮
     local minBtn = Instance.new("TextButton", titleBar)
@@ -278,7 +267,6 @@ function UI:createMainWindow()
     self.titleBar = titleBar
     self.titleText = titleText
     self.statusIndicator = statusIndicator
-    self.statusText = statusText
     self.tokenDisplay = tokenDisplay
     self.tokenText = tokenText
     self.sidebar = sidebar
@@ -638,6 +626,7 @@ function UI:showLoading()
     self.lastDotTime = 0
     
     -- 禁用输入
+    self.inputBox.TextEditable = false
     self.inputBox.PlaceholderText = ""
     self.sendBtn.Text = "..."
     self.sendBtn.BackgroundColor3 = self.Theme.textMuted
@@ -677,6 +666,7 @@ function UI:hideLoading()
     
     -- 恢复输入
     if self.inputBox then
+        self.inputBox.TextEditable = true
         self.inputBox.PlaceholderText = "输入问题或指令..."
     end
     if self.sendBtn then
@@ -685,8 +675,8 @@ function UI:hideLoading()
     end
 end
 
--- 更新状态显示（用于工具执行时）
-function UI:updateStatus(statusText)
+-- 更新工具执行状态（显示在输入框placeholder）
+function UI:updateToolStatus(statusText)
     if not self.isLoading then return end
     self.currentStatus = statusText or ""
     -- 直接更新占位符文字
@@ -3200,10 +3190,12 @@ function UI:setupDrag(dragFrame, moveFrame)
     end)
 end
 
--- 更新状态指示器
+-- 更新连接状态指示器颜色
 function UI:updateStatus(status, color)
-    self.statusText.Text = status
-    self.statusIndicator.BackgroundColor3 = color or self.Theme.warning
+    -- 状态指示器颜色
+    if self.statusIndicator then
+        self.statusIndicator.BackgroundColor3 = color or self.Theme.warning
+    end
 end
 
 -- 更新Token显示

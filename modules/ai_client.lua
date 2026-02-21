@@ -172,7 +172,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     ["get_game_info"] = "🎮 正在获取游戏信息...",
                     ["list_instances"] = "📋 正在列出实例..."
                 }
-                UI:updateStatus(statusMap[toolName] or ("🔧 执行: " .. toolName))
+                UI:updateToolStatus(statusMap[toolName] or ("🔧 执行: " .. toolName))
             end
             
             -- 执行工具（添加错误捕获，防止工具执行卡住）
