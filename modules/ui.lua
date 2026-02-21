@@ -3762,21 +3762,16 @@ end
 -- 选择文件
 function UI:selectFile(path)
     local exec = _G.AIAnalyzer and _G.AIAnalyzer.Executor
-    if not exec or not exec.readfile then return end
     
-    local fileName = path:match("[^/]+$") or path
     self.fileBrowserSelectedFile = path
-    self.fileNameInput.Text = fileName
-    self.fileNameInput.Visible = true
     
-    -- 读取文件内容
-    local success, content = pcall(exec.readfile, path)
-    if success and content then
-        -- 显示编辑器
-        self:showFileEditor(content)
-    else
-        self:addMessage("❌ 无法读取文件: " .. tostring(content), false)
+    -- 将文件路径写入输入框，让AI知道用户选择的文件
+    if self.inputBox then
+        self.inputBox.Text = "@" .. path
     end
+    
+    -- 关闭文件浏览器
+    self:hideFileBrowser()
 end
 
 -- 显示文件编辑器
