@@ -331,16 +331,53 @@ function AIClient:chat(userMessage, systemPrompt, options)
         assistantMessage = followUpChoice.message
     end
     
-    -- 达到最大迭代次数时，返回工具结果汇总
+    -- 达到最大迭代次数时，发送最终请求让AI生成回复
     if iteration >= maxIterations then
-        warn("[AI CLI] Reached max tool call iterations, returning tool results")
-        local fallbackContent = self:generateFallbackContent(lastToolResults)
-        if fallbackContent then
-            return {
-                content = fallbackContent,
-                provider = provider.name,
-                contextStatus = ctx and ctx:getStatus()
-            }
+        warn("[AI CLI] Reached max tool call iterations, sending final request for summary")
+        
+        -- 添加提示让AI生成总结
+        if ctx then
+            ctx:addUserMessage("已达到最大工具调用次数，请根据已收集的信息生成最终回复。")
+        else
+            table.insert(messages, {role = "user", content = "已达到最大工具调用次数，请根据已收集的信息生成最终回复。"})
+        end
+        
+        local finalMessages
+        if ctx then
+            finalMessages = ctx:getMessagesForAPI(systemPrompt)
+        else
+            finalMessages = messages
+        end
+        
+        local finalBody = createRequestBody(provider, finalMessages, options, nil) -- 不传tools，强制生成回复
+        local finalResponse = Http:jsonRequest(url, "POST", finalBody, headers)
+        
+        if finalResponse.success and finalResponse.data and finalResponse.data.choices then
+            local finalChoice = finalResponse.data.choices[1]
+            if finalChoice and finalChoice.message then
+                -- 更新变量，让后续代码正确处理
+                response = finalResponse
+                choice = finalChoice
+                assistantMessage = finalChoice.message
+                
+                -- 累加最终请求的usage
+                if finalResponse.data.usage then
+                    totalUsage.prompt_tokens = totalUsage.prompt_tokens + (finalResponse.data.usage.prompt_tokens or 0)
+                    totalUsage.completion_tokens = totalUsage.completion_tokens + (finalResponse.data.usage.completion_tokens or 0)
+                    totalUsage.total_tokens = totalUsage.total_tokens + (finalResponse.data.usage.total_tokens or 0)
+                end
+            end
+        else
+            -- 最终请求失败，使用fallback
+            local fallbackContent = self:generateFallbackContent(lastToolResults)
+            if fallbackContent and fallbackContent ~= "" then
+                return {
+                    content = fallbackContent,
+                    provider = provider.name,
+                    contextStatus = ctx and ctx:getStatus()
+                }
+            end
+            return nil, "达到最大迭代次数且无法生成回复"
         end
     end
     

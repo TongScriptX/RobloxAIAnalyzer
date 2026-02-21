@@ -861,10 +861,21 @@ function App:sendToAI(query)
     ui:showLoading()
     
     spawn(function()
-        local result, err = AIClient:analyzeResources(query, context)
+        -- 使用 pcall 捕获错误，确保 UI 状态总是被重置
+        local success, resultOrErr = pcall(function()
+            return AIClient:analyzeResources(query, context)
+        end)
         
-        -- 隐藏加载动画
+        -- 隐藏加载动画（总是执行）
         ui:hideLoading()
+        
+        if not success then
+            ui:addMessage("❌ 请求出错: " .. tostring(resultOrErr), false)
+            return
+        end
+        
+        local result, err = resultOrErr, nil
+        -- pcall 返回的是单个值，需要检查是否是 nil, err 格式
         
         if result then
             -- 传递思考过程（如果存在）
