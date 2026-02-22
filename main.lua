@@ -843,6 +843,11 @@ function App:confirmScriptExecution()
                     if aiResult.usage then
                         ui:updateTokenDisplay(aiResult.usage)
                     end
+                    -- 更新上下文状态
+                    local ctx = _G.AIAnalyzer.ContextManager and _G.AIAnalyzer.ContextManager.getInstance()
+                    if ctx then
+                        ui:updateContextStatus(ctx:getStatus())
+                    end
                 elseif err then
                     ui:addMessage("⚠️ AI响应失败: " .. tostring(err), false)
                 end
@@ -1028,6 +1033,11 @@ function App:sendToAI(query)
                 ui:addMessage(result.content, false, result.reasoning)
                 if result.usage then
                     ui:updateTokenDisplay(result.usage)
+                end
+                -- 更新上下文状态显示
+                local ctx = _G.AIAnalyzer.ContextManager and _G.AIAnalyzer.ContextManager.getInstance()
+                if ctx then
+                    ui:updateContextStatus(ctx:getStatus())
                 end
                 -- 显示上下文状态（如果接近阈值）
                 if result.contextStatus and result.contextStatus.usageRatio and result.contextStatus.usageRatio > 0.5 then

@@ -562,7 +562,7 @@ function UI:createChatView()
     -- 消息显示区
     local messageArea = Instance.new("ScrollingFrame", chatFrame)
     messageArea.Name = "MessageArea"
-    messageArea.Size = UDim2.new(1, -16, 1, -56)
+    messageArea.Size = UDim2.new(1, -16, 1, -76)  -- 调整高度，为状态栏留出空间
     messageArea.Position = UDim2.new(0, 8, 0, 8)
     messageArea.BackgroundColor3 = self.Theme.backgroundTertiary
     messageArea.BorderSizePixel = 0
@@ -574,6 +574,37 @@ function UI:createChatView()
     
     local listLayout = Instance.new("UIListLayout", messageArea)
     listLayout.Padding = UDim.new(0, 6)
+    
+    -- 上下文状态栏（输入框上方）
+    local statusFrame = Instance.new("Frame", chatFrame)
+    statusFrame.Name = "ContextStatusFrame"
+    statusFrame.Size = UDim2.new(1, -16, 0, 18)
+    statusFrame.Position = UDim2.new(0, 8, 1, -66)  -- 输入框上方
+    statusFrame.BackgroundTransparency = 1
+    
+    -- 左侧：上下文使用百分比
+    local contextLabel = Instance.new("TextLabel", statusFrame)
+    contextLabel.Name = "ContextLabel"
+    contextLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    contextLabel.Position = UDim2.new(0, 0, 0, 0)
+    contextLabel.BackgroundTransparency = 1
+    contextLabel.Text = "📊 上下文: 0%"
+    contextLabel.TextColor3 = self.Theme.textSecondary
+    contextLabel.TextSize = 11
+    contextLabel.Font = Enum.Font.Gotham
+    contextLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- 右侧：Token 消耗显示
+    local tokenLabel = Instance.new("TextLabel", statusFrame)
+    tokenLabel.Name = "TokenLabel"
+    tokenLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    tokenLabel.Position = UDim2.new(0.5, 0, 0, 0)
+    tokenLabel.BackgroundTransparency = 1
+    tokenLabel.Text = "消耗: 0 tokens"
+    tokenLabel.TextColor3 = self.Theme.textSecondary
+    tokenLabel.TextSize = 11
+    tokenLabel.Font = Enum.Font.Gotham
+    tokenLabel.TextXAlignment = Enum.TextXAlignment.Right
     
     -- 输入区域
     local inputFrame = Instance.new("Frame", chatFrame)
@@ -615,6 +646,8 @@ function UI:createChatView()
     self.messageArea = messageArea
     self.inputBox = inputBox
     self.sendBtn = sendBtn
+    self.contextLabel = contextLabel
+    self.tokenLabel = tokenLabel
     
     return chatFrame
 end
@@ -3334,6 +3367,37 @@ function UI:updateTokenDisplay(usage)
         end
         
         self.tokenStatsLabel.Text = statsText
+    end
+end
+
+-- 更新上下文状态显示
+function UI:updateContextStatus(contextStatus)
+    if not contextStatus then return end
+    
+    -- 更新上下文使用百分比
+    if self.contextLabel then
+        local percent = contextStatus.usagePercent or 0
+        local remainingPercent = 100 - percent
+        
+        -- 根据使用量设置颜色
+        local color
+        if percent < 50 then
+            color = Color3.fromRGB(76, 175, 80)  -- 绿色
+        elseif percent < 70 then
+            color = Color3.fromRGB(255, 193, 7)  -- 黄色
+        else
+            color = Color3.fromRGB(244, 67, 54)  -- 红色
+        end
+        
+        self.contextLabel.Text = string.format("📊 上下文: %d%% 剩余", remainingPercent)
+        self.contextLabel.TextColor3 = color
+    end
+    
+    -- 更新Token消耗显示
+    if self.tokenLabel then
+        local tokens = contextStatus.totalTokens or 0
+        local maxTokens = contextStatus.maxTokens or 8192
+        self.tokenLabel.Text = string.format("消耗: %d / %d tokens", tokens, maxTokens)
     end
 end
 
