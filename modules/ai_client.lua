@@ -6,7 +6,7 @@ local HttpService = game:GetService("HttpService")
 -- 从全局获取依赖
 local function getDeps()
     local deps = _G.AIAnalyzer or {}
-    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager, deps.UI
+    return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager, deps.UI, deps.Executor
 end
 
 -- 创建请求体
@@ -41,7 +41,7 @@ end
 
 -- 发送聊天请求（支持工具调用和上下文管理）
 function AIClient:chat(userMessage, systemPrompt, options)
-    local Config, Http, Tools, Scanner, Reader, ContextManager, UI = getDeps()
+    local Config, Http, Tools, Scanner, Reader, ContextManager, UI, Executor = getDeps()
     options = options or {}
     
     if not Config then
@@ -182,7 +182,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
                 local success, toolResult = pcall(function()
                     return Tools:execute(toolName, toolArgs, {
                         Scanner = Scanner,
-                        Reader = Reader
+                        Reader = Reader,
+                        Executor = Executor
                     })
                 end)
                 

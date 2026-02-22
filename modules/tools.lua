@@ -31,13 +31,13 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "read_script",
-            description = "读取指定脚本的源代码。可以读取完整脚本或指定行范围。返回脚本源码。",
+            description = "读取指定脚本的源代码。可以读取完整脚本或指定行范围。返回脚本源码。使用@前缀读取注入器文件系统中的文件（如 @workspace/script.lua）。",
             parameters = {
                 type = "object",
                 properties = {
                     name = {
                         type = "string",
-                        description = "脚本名称或路径"
+                        description = "脚本名称或路径。使用@前缀读取注入器文件（如 @workspace/test.lua），否则读取游戏内脚本"
                     },
                     start_line = {
                         type = "integer",
@@ -380,11 +380,12 @@ end
 function Tools:execute(toolName, args, context)
     local Scanner = context.Scanner
     local Reader = context.Reader
+    local Executor = context.Executor
     
     if toolName == "search_resources" then
         return self:searchResources(args, Scanner)
     elseif toolName == "read_script" then
-        return self:readScript(args, Reader, Scanner)
+        return self:readScript(args, Reader, Scanner, Executor)
     elseif toolName == "get_remote_info" then
         return self:getRemoteInfo(args, Scanner)
     elseif toolName == "list_resources" then
@@ -445,7 +446,7 @@ function Tools:searchResources(args, Scanner)
 end
 
 -- 读取脚本源码
-function Tools:readScript(args, Reader, Scanner)
+function Tools:readScript(args, Reader, Scanner, Executor)
     local name = args.name
     local startLine = args.start_line
     local endLine = args.end_line
@@ -454,6 +455,72 @@ function Tools:readScript(args, Reader, Scanner)
         return {error = "Script name required"}
     end
     
+    -- 检测 @ 前缀，表示注入器文件系统中的文件
+    if name:sub(1, 1) == "@" then
+        local filePath = name:sub(2)  -- 移除 @ 前缀
+        
+        if not Executor or not Executor.readfile then
+            return {error = "File reading not supported by executor"}
+        end
+        
+        local success, content = pcall(Executor.readfile, filePath)
+        if not success then
+            return {error = "Failed to read file: " .. tostring(content)}
+        end
+        
+        if not content then
+            return {error = "File not found or empty: " .. filePath}
+        end
+        
+        -- 计算行数
+        local lines = {}
+        for line in content:gmatch("[^\n]*") do
+            table.insert(lines, line)
+        end
+        local totalLines = #lines
+        
+        -- 处理行范围
+        if startLine or endLine then
+            startLine = startLine or 1
+            endLine = endLine or totalLines
+            
+            local rangeLines = {}
+            for i = startLine, math.min(endLine, totalLines) do
+                table.insert(rangeLines, string.format("%4d: %s", i, lines[i] or ""))
+            end
+            
+            if #rangeLines > 0 then
+                content = table.concat(rangeLines, "\n")
+            else
+                content = "-- No lines in range"
+            end
+            
+            return {
+                name = filePath:match("[^/]+$") or filePath,
+                type = "executor_file",
+                path = filePath,
+                source = content,
+                size = #content,
+                lines = totalLines,
+                lineRange = {
+                    start = startLine,
+                    end_ = math.min(endLine, totalLines),
+                    total = totalLines
+                }
+            }
+        end
+        
+        return {
+            name = filePath:match("[^/]+$") or filePath,
+            type = "executor_file",
+            path = filePath,
+            source = content,
+            size = #content,
+            lines = totalLines
+        }
+    end
+    
+    -- 游戏内脚本读取
     if not Reader or not Reader:canDecompile() then
         return {error = "Script reading not available (need decompile support)"}
     end
