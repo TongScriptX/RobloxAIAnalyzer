@@ -306,6 +306,13 @@ function App:init()
     print("[AI CLI] 初始化完成")
     
     self:showWelcome()
+    
+    -- 初始化上下文状态显示
+    local ctx = _G.AIAnalyzer.ContextManager and _G.AIAnalyzer.ContextManager.getInstance()
+    local uiModule = _G.AIAnalyzer.UI
+    if ctx and uiModule then
+        uiModule:updateContextStatus(ctx:getStatus())
+    end
 end
 
 -- 加载中UI
