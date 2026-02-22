@@ -375,11 +375,25 @@ function UI:toggleMinimize()
         self.mainFrame.Position = self.savedPosition or UDim2.new(0.5, -self.currentWidth/2, 0.5, -self.currentHeight/2)
         
         -- 展开动画
-        TweenService:Create(self.mainFrame, tweenInfo, {
+        local expandTween = TweenService:Create(self.mainFrame, tweenInfo, {
             Size = UDim2.new(0, self.currentWidth, 0, self.currentHeight),
             Position = UDim2.new(0.5, -self.currentWidth/2, 0.5, -self.currentHeight/2),
             BackgroundTransparency = 0
-        }):Play()
+        })
+        expandTween:Play()
+        
+        -- 展开完成后刷新消息区域布局
+        expandTween.Completed:Connect(function()
+            -- 强制刷新消息区域的布局
+            if self.messageArea then
+                local listLayout = self.messageArea:FindFirstChild("UIListLayout")
+                if listLayout then
+                    -- 触发布局重新计算
+                    task.wait(0.1)
+                    self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+                end
+            end
+        end)
     end
 end
 
