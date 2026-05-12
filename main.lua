@@ -425,17 +425,19 @@ end
 function App:loadSettings()
     local ui = _G.AIAnalyzer.UI
     local cfg = _G.AIAnalyzer.Config
-    
+
     ui:updateExecutorInfo({
         name = self.exec.name,
         canWrite = self.exec.canWrite,
         canExecute = self.exec.canExecute
     })
-    
+
     if cfg then
         local p = cfg:getCurrentProvider()
         if p then
+            ui.baseUrlInput.Text = p.baseUrl or ""
             ui.apiKeyInput.Text = p.apiKey or ""
+            ui.modelInput.Text = p.defaultModel or ""
         end
         ui.scriptDirInput.Text = cfg.Settings and cfg.Settings.scriptDir or ""
         ui:updateConfirmToggle(cfg.Settings and cfg.Settings.confirmBeforeExecute)
@@ -462,25 +464,11 @@ function App:bindEvents()
     ui.saveSettingsBtn.MouseButton1Click:Connect(function()
         self:saveSettings()
     end)
-    
+
     ui.testConnectionBtn.MouseButton1Click:Connect(function()
         self:testConnection()
     end)
-    
-    -- 动态绑定提供商按钮事件
-    for key, btn in pairs(ui.providerButtons) do
-        btn.MouseButton1Click:Connect(function()
-            self:switchProvider(key)
-        end)
-    end
-    
-    -- 模型下拉框点击事件
-    if ui.modelDropdown then
-        ui.modelDropdown.MouseButton1Click:Connect(function()
-            ui.modelListFrame.Visible = not ui.modelListFrame.Visible
-        end)
-    end
-    
+
     ui.confirmToggle.MouseButton1Click:Connect(function()
         if cfg then
             cfg.Settings.confirmBeforeExecute = not cfg.Settings.confirmBeforeExecute
@@ -1202,23 +1190,33 @@ end
 function App:saveSettings()
     local ui = _G.AIAnalyzer.UI
     local Config = _G.AIAnalyzer.Config
-    
+
     if not Config then
         ui:addMessage("❌ Config模块未加载", false)
         return
     end
-    
+
+    local baseUrl = ui.baseUrlInput.Text
     local apiKey = ui.apiKeyInput.Text
+    local model = ui.modelInput.Text
     local scriptDir = ui.scriptDirInput.Text
     local currentProvider = Config.Settings.currentProvider
-    
+
+    if baseUrl and baseUrl ~= "" then
+        Config:setBaseUrl(currentProvider, baseUrl)
+    end
+
     if apiKey and apiKey ~= "" then
         Config:setApiKey(currentProvider, apiKey)
     end
-    
+
+    if model and model ~= "" then
+        Config:setModel(currentProvider, model)
+    end
+
     Config.Settings.scriptDir = scriptDir ~= "" and scriptDir or "AICli"
     Config:save()
-    
+
     ui:addMessage("✅ 设置已保存", false)
     self:updateConnectionStatus()
 end
@@ -1250,29 +1248,15 @@ end
 function App:switchProvider(providerName)
     local ui = _G.AIAnalyzer.UI
     local Config = _G.AIAnalyzer.Config
-    
+
     if not Config then return end
-    
+
     Config:switchProvider(providerName)
-    
-    for key, btn in pairs(ui.providerButtons) do
-        if key == providerName then
-            btn.BackgroundColor3 = ui.Theme.accent
-            btn.TextColor3 = Color3.new(1, 1, 1)
-            btn.Font = Enum.Font.GothamBold
-        else
-            btn.BackgroundColor3 = ui.Theme.backgroundSecondary
-            btn.TextColor3 = ui.Theme.text
-            btn.Font = Enum.Font.Gotham
-        end
-    end
-    
-    if ui.updateModelDropdown then
-        ui:updateModelDropdown(providerName)
-    end
-    
+
     local provider = Config:getCurrentProvider()
+    ui.baseUrlInput.Text = provider.baseUrl or ""
     ui.apiKeyInput.Text = provider.apiKey or ""
+    ui.modelInput.Text = provider.defaultModel or ""
     self:updateConnectionStatus()
 end
 

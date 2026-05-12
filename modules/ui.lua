@@ -1376,7 +1376,31 @@ function UI:createSettingsView()
     apiSection.TextColor3 = self.Theme.textSecondary
     apiSection.TextSize = 12
     apiSection.Font = Enum.Font.GothamBold
-    
+
+    -- Base URL
+    local baseUrlLabel = Instance.new("TextLabel", scrollFrame)
+    baseUrlLabel.Size = UDim2.new(1, -8, 0, 16)
+    baseUrlLabel.BackgroundTransparency = 1
+    baseUrlLabel.Text = "Base URL"
+    baseUrlLabel.TextColor3 = self.Theme.text
+    baseUrlLabel.TextSize = 12
+    baseUrlLabel.Font = Enum.Font.GothamBold
+    baseUrlLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local baseUrlInput = Instance.new("TextBox", scrollFrame)
+    baseUrlInput.Name = "BaseUrlInput"
+    baseUrlInput.Size = UDim2.new(1, -8, 0, 28)
+    baseUrlInput.BackgroundColor3 = self.Theme.backgroundTertiary
+    baseUrlInput.BorderSizePixel = 0
+    baseUrlInput.PlaceholderText = "例如: https://api.openai.com"
+    baseUrlInput.PlaceholderColor3 = self.Theme.textMuted
+    baseUrlInput.Text = ""
+    baseUrlInput.TextColor3 = self.Theme.text
+    baseUrlInput.TextSize = 12
+    baseUrlInput.Font = Enum.Font.Gotham
+    baseUrlInput.TextXAlignment = Enum.TextXAlignment.Left
+    createCorner(baseUrlInput, 6)
+
     -- API Key
     local apiLabel = Instance.new("TextLabel", scrollFrame)
     apiLabel.Size = UDim2.new(1, -8, 0, 16)
@@ -1386,7 +1410,7 @@ function UI:createSettingsView()
     apiLabel.TextSize = 12
     apiLabel.Font = Enum.Font.GothamBold
     apiLabel.TextXAlignment = Enum.TextXAlignment.Left
-    
+
     local apiInput = Instance.new("TextBox", scrollFrame)
     apiInput.Name = "ApiKeyInput"
     apiInput.Size = UDim2.new(1, -8, 0, 28)
@@ -1400,110 +1424,36 @@ function UI:createSettingsView()
     apiInput.Font = Enum.Font.Gotham
     apiInput.TextXAlignment = Enum.TextXAlignment.Left
     createCorner(apiInput, 6)
-    
-    -- Provider
-    local providerLabel = Instance.new("TextLabel", scrollFrame)
-    providerLabel.Size = UDim2.new(1, -8, 0, 16)
-    providerLabel.BackgroundTransparency = 1
-    providerLabel.Text = "AI Provider"
-    providerLabel.TextColor3 = self.Theme.text
-    providerLabel.TextSize = 12
-    providerLabel.Font = Enum.Font.GothamBold
-    providerLabel.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local providerFrame = Instance.new("Frame", scrollFrame)
-    providerFrame.Size = UDim2.new(1, -8, 0, 32)
-    providerFrame.BackgroundColor3 = self.Theme.backgroundTertiary
-    providerFrame.BorderSizePixel = 0
-    createCorner(providerFrame, 6)
-    
-    -- 动态创建提供商按钮
-    local providerBtns = {}
-    local providerList = {}
-    local currentProvider = Config and Config.Settings and Config.Settings.currentProvider or "DeepSeek"
-    
-    -- 从 Config 读取提供商列表
-    if Config and Config.Providers then
-        for key, provider in pairs(Config.Providers) do
-            table.insert(providerList, {key = key, name = provider.name})
-        end
-        -- 排序保持一致
-        table.sort(providerList, function(a, b) return a.key < b.key end)
-    else
-        providerList = {{key = "DeepSeek", name = "DeepSeek"}, {key = "OpenAI", name = "OpenAI"}}
-    end
-    
-    local btnCount = #providerList
-    local btnWidth = 1 / btnCount
-    
-    for i, prov in ipairs(providerList) do
-        local btn = Instance.new("TextButton", providerFrame)
-        btn.Name = prov.key
-        btn.Size = UDim2.new(btnWidth, -4, 1, -8)
-        btn.Position = UDim2.new((i - 1) * btnWidth, 4, 0, 4)
-        btn.BackgroundColor3 = prov.key == currentProvider and self.Theme.accent or self.Theme.backgroundSecondary
-        btn.BorderSizePixel = 0
-        btn.Text = prov.name
-        btn.TextColor3 = prov.key == currentProvider and Color3.new(1, 1, 1) or self.Theme.text
-        btn.TextSize = 11
-        btn.Font = prov.key == currentProvider and Enum.Font.GothamBold or Enum.Font.Gotham
-        createCorner(btn, 4)
-        providerBtns[prov.key] = btn
-    end
-    
-    -- ========== 模型选择（仅部分提供商显示）==========
+
+    -- Model Name
     local modelLabel = Instance.new("TextLabel", scrollFrame)
     modelLabel.Name = "ModelLabel"
     modelLabel.Size = UDim2.new(1, -8, 0, 16)
     modelLabel.BackgroundTransparency = 1
-    modelLabel.Text = "模型选择"
+    modelLabel.Text = "模型名称"
     modelLabel.TextColor3 = self.Theme.text
     modelLabel.TextSize = 12
     modelLabel.Font = Enum.Font.GothamBold
     modelLabel.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local modelFrame = Instance.new("Frame", scrollFrame)
-    modelFrame.Name = "ModelFrame"
-    modelFrame.Size = UDim2.new(1, -8, 0, 28)
-    modelFrame.BackgroundColor3 = self.Theme.backgroundTertiary
-    modelFrame.BorderSizePixel = 0
-    createCorner(modelFrame, 6)
-    
-    local modelDropdown = Instance.new("TextButton", modelFrame)
-    modelDropdown.Name = "ModelDropdown"
-    modelDropdown.Size = UDim2.new(1, -8, 1, 0)
-    modelDropdown.Position = UDim2.new(0, 4, 0, 0)
-    modelDropdown.BackgroundTransparency = 1
-    modelDropdown.Text = "选择模型..."
-    modelDropdown.TextColor3 = self.Theme.text
-    modelDropdown.TextSize = 12
-    modelDropdown.Font = Enum.Font.Gotham
-    modelDropdown.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local modelDropdownArrow = Instance.new("TextLabel", modelFrame)
-    modelDropdownArrow.Size = UDim2.new(0, 20, 1, 0)
-    modelDropdownArrow.Position = UDim2.new(1, -24, 0, 0)
-    modelDropdownArrow.BackgroundTransparency = 1
-    modelDropdownArrow.Text = "▼"
-    modelDropdownArrow.TextColor3 = self.Theme.textSecondary
-    modelDropdownArrow.TextSize = 10
-    modelDropdownArrow.Font = Enum.Font.Gotham
-    
-    -- 模型下拉列表容器（初始隐藏，使用 ScrollingFrame 支持滚动）
-    local modelListFrame = Instance.new("ScrollingFrame", scrollFrame)
+
+    local modelInput = Instance.new("TextBox", scrollFrame)
+    modelInput.Name = "ModelInput"
+    modelInput.Size = UDim2.new(1, -8, 0, 28)
+    modelInput.BackgroundColor3 = self.Theme.backgroundTertiary
+    modelInput.BorderSizePixel = 0
+    modelInput.PlaceholderText = "例如: gpt-4o-mini"
+    modelInput.PlaceholderColor3 = self.Theme.textMuted
+    modelInput.Text = ""
+    modelInput.TextColor3 = self.Theme.text
+    modelInput.TextSize = 12
+    modelInput.Font = Enum.Font.Gotham
+    modelInput.TextXAlignment = Enum.TextXAlignment.Left
+    createCorner(modelInput, 6)
+
+    local providerBtns = {}
+    local modelListFrame = Instance.new("Frame", scrollFrame)
     modelListFrame.Name = "ModelListFrame"
-    modelListFrame.Size = UDim2.new(1, -8, 0, 150)
-    modelListFrame.BackgroundColor3 = self.Theme.backgroundTertiary
-    modelListFrame.BorderSizePixel = 0
     modelListFrame.Visible = false
-    modelListFrame.ScrollBarThickness = 4
-    modelListFrame.ScrollBarImageColor3 = self.Theme.accent
-    modelListFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    modelListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    createCorner(modelListFrame, 6)
-    
-    local modelListLayout = Instance.new("UIListLayout", modelListFrame)
-    modelListLayout.Padding = UDim.new(0, 2)
     
     -- ========== 脚本设置 ==========
     local scriptSection = Instance.new("TextLabel", scrollFrame)
@@ -1690,22 +1640,20 @@ function UI:createSettingsView()
     self.settingsView = settingsFrame
     self.settingsScroll = scrollFrame
     self.executorLabel = executorLabel
+    self.baseUrlInput = baseUrlInput
     self.apiKeyInput = apiInput
+    self.modelInput = modelInput
     self.scriptDirInput = dirInput
     self.confirmToggle = confirmBtn
     self.providerButtons = providerBtns
-    self.modelDropdown = modelDropdown
     self.modelListFrame = modelListFrame
     self.modelLabel = modelLabel
     self.saveSettingsBtn = saveBtn
     self.testConnectionBtn = testBtn
     self.tokenStatsLabel = tokenStatsLabel
     self.resetTokenBtn = resetTokenBtn
-    self.runModeButtons = modeBtns  -- 运行模式按钮
-    
-    -- 初始化模型选择
-    self:updateModelDropdown(currentProvider)
-    
+    self.runModeButtons = modeBtns
+
     return settingsFrame
 end
 
