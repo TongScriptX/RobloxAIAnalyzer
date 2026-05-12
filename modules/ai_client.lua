@@ -572,8 +572,9 @@ You MUST use the provided function tools to interact with the game. DO NOT outpu
 IMPORTANT RULES:
 1. Use tools efficiently - limit to 3-4 tool calls max before responding
 2. Don't repeat the same search multiple times
-3. After getting info, respond directly with useful code/analysis
-4. If you can't find something after 2 searches, tell the user
+3. After getting tool results, ALWAYS analyze them and provide a complete answer to the user's question
+4. DO NOT just list search results - explain what they mean and how to use them
+5. If you can't find something after 2 searches, tell the user
 
 CODE GENERATION RULES (防止游戏卡顿):
 1. 使用 spawn() 或 task.defer() 包装耗时操作，避免阻塞主线程
