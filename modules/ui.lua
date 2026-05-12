@@ -4100,31 +4100,29 @@ function UI:showContextMenu(node, position)
     
     -- 保存菜单引用
     self.contextMenu = menu
-    
+
     -- 点击其他地方关闭菜单
-    task.wait(0.1)  -- 等待菜单渲染完成
-    
-    self.contextMenuConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
-            local mousePos = UserInputService:GetMouseLocation()
-            
-            -- 检查点击是否在菜单范围内
-            local menuFrame = self.contextMenu
-            if menuFrame and menuFrame.Parent then
-                local menuPos = menuFrame.AbsolutePosition
-                local menuSize = menuFrame.AbsoluteSize
-                
+    task.spawn(function()
+        task.wait(0.05)
+        self.contextMenuConnection = UserInputService.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                if not self.contextMenu or not self.contextMenu.Parent then
+                    self:closeContextMenu()
+                    return
+                end
+
+                local mousePos = UserInputService:GetMouseLocation()
+                local menuPos = self.contextMenu.AbsolutePosition
+                local menuSize = self.contextMenu.AbsoluteSize
+
                 local inMenu = mousePos.X >= menuPos.X and mousePos.X <= menuPos.X + menuSize.X
                             and mousePos.Y >= menuPos.Y and mousePos.Y <= menuPos.Y + menuSize.Y
-                
+
                 if not inMenu then
                     self:closeContextMenu()
                 end
-            else
-                -- 菜单已不存在，关闭连接
-                self:closeContextMenu()
             end
-        end
+        end)
     end)
 end
 
