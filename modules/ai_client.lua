@@ -132,6 +132,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
         if response.data.usage.prompt_cache_hit_tokens then
             totalUsage.cache_hit_tokens = (totalUsage.cache_hit_tokens or 0) + response.data.usage.prompt_cache_hit_tokens
         end
+        -- 用真实 token 数更新上下文管理器
+        if ctx then ctx:updateRealTokenCount(response.data.usage) end
     end
     
     -- 处理工具调用（循环处理多次工具调用，无限制直到AI返回最终回复）
@@ -295,11 +297,14 @@ function AIClient:chat(userMessage, systemPrompt, options)
         local followUpResponse = Http:jsonRequest(url, "POST", followUpBody, headers)
         
         if not followUpResponse.success then
-            warn("[AI CLI] Follow-up request failed: " .. tostring(followUpResponse.error))
+            warn("[AI CLI] Follow-up request failed: HTTP " .. tostring(followUpResponse.statusCode) ..
+                 " | error=" .. tostring(followUpResponse.error) ..
+                 " | body=" .. tostring(followUpResponse.body):sub(1, 300))
             local fallbackContent = self:generateFallbackContent(lastToolResults)
             if fallbackContent then
                 return {
                     content = fallbackContent,
+                    usage = totalUsage,
                     provider = provider.name,
                     contextStatus = ctx and ctx:getStatus()
                 }
@@ -331,6 +336,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
             if followUpResponse.data.usage.prompt_cache_hit_tokens then
                 totalUsage.cache_hit_tokens = (totalUsage.cache_hit_tokens or 0) + followUpResponse.data.usage.prompt_cache_hit_tokens
             end
+            -- 用真实 token 数更新上下文管理器
+            if ctx then ctx:updateRealTokenCount(followUpResponse.data.usage) end
         end
         
         assistantMessage = followUpChoice.message
@@ -378,6 +385,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
             if fallbackContent and fallbackContent ~= "" then
                 return {
                     content = fallbackContent,
+                    usage = totalUsage,
                     provider = provider.name,
                     contextStatus = ctx and ctx:getStatus()
                 }

@@ -184,7 +184,8 @@ function ContextManager:addAssistantMessage(content, toolCalls)
     if toolCalls then
         extra = { tool_calls = toolCalls }
     end
-    return self:addMessage("assistant", content, extra)
+    -- 当有 tool_calls 时 content 必须为字符串，否则部分 API 会返回 400
+    return self:addMessage("assistant", content or "", extra)
 end
 
 -- 添加工具结果
@@ -294,6 +295,15 @@ function ContextManager:generateSummary(messages, oldSummary)
     end
     
     return table.concat(parts, "\n")
+end
+
+-- 用 API 返回的真实 token 数更新计数（覆盖本地估算值）
+function ContextManager:updateRealTokenCount(usage)
+    if not usage then return end
+    local real = usage.total_tokens or usage.prompt_tokens
+    if real and real > 0 then
+        self.totalTokens = real
+    end
 end
 
 -- 手动压缩
