@@ -210,7 +210,11 @@ function AIClient:chat(userMessage, systemPrompt, options)
             -- 检查是否需要用户确认
             if result.needsConfirmation then
                 print("[AI CLI] 需要用户确认运行脚本")
-                -- 设置标志，跳出外层循环
+                -- 把当前 tool 结果也存入上下文，保证后续 chat 调用时历史完整
+                local resultText = Tools and Tools:formatResult(result) or HttpService:JSONEncode(result)
+                if ctx then
+                    ctx:addToolResult(toolCall.id, resultText)
+                end
                 self._needsUserConfirmation = true
                 return {
                     needsConfirmation = true,

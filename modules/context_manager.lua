@@ -208,34 +208,42 @@ end
 function ContextManager:autoCompress()
     -- 保留最近的对话，压缩旧的
     local keepCount = 6  -- 保留最近3轮对话（6条消息）
-    
+
     if #self.messages <= keepCount then
         return false, "消息数量太少，无需压缩"
     end
-    
+
+    -- 计算安全的截断点：不能在 tool_calls/tool 消息组中间截断
+    -- 找到最后一个可以安全截断的位置（该位置之后不存在孤立的 tool 消息）
+    local cutAt = #self.messages - keepCount
+    -- 向前调整，确保 cutAt 之后的第一条消息不是 tool 消息
+    -- （tool 消息必须紧跟在对应的 assistant tool_calls 消息之后）
+    while cutAt > 0 and self.messages[cutAt + 1] and self.messages[cutAt + 1].role == "tool" do
+        cutAt = cutAt - 1
+    end
+
+    if cutAt <= 0 then
+        return false, "无法安全截断，跳过压缩"
+    end
+
     -- 提取要压缩的消息
     local toCompress = {}
-    for i = 1, #self.messages - keepCount do
+    for i = 1, cutAt do
         table.insert(toCompress, self.messages[i])
     end
-    
+
     -- 生成摘要
     local oldSummary = self.summary
     self.summary = self:generateSummary(toCompress, oldSummary)
-    
+
     -- 移除已压缩的消息
     for i = 1, #toCompress do
         table.remove(self.messages, 1)
     end
-    
+
     -- 重新计算token
     self:recalculateTokens()
-    
-    -- 如果摘要存在，将其作为系统消息添加
-    if self.summary then
-        -- 摘要token已计入
-    end
-    
+
     return true, string.format("已压缩 %d 条消息", #toCompress)
 end
 
