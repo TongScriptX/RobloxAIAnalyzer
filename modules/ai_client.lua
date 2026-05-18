@@ -140,13 +140,21 @@ function AIClient:chat(userMessage, systemPrompt, options)
     local maxIterations = 100  -- 设置一个较高的上限作为安全保护
     local iteration = 0
     local lastToolResults = {}
-    
+
     while assistantMessage.tool_calls and #assistantMessage.tool_calls > 0 and iteration < maxIterations do
         iteration = iteration + 1
-        
-        -- 添加助手消息到历史
+
+        print(string.format("[AI CLI][DEBUG] === 工具调用循环 iteration=%d, tool_calls=%d ===",
+            iteration, #assistantMessage.tool_calls))
+
+        -- 添加助手消息到历史（保留 reasoning_content，DeepSeek 思考模式要求原样传回）
         if ctx then
-            ctx:addAssistantMessage(nil, assistantMessage.tool_calls)
+            local extra = { tool_calls = assistantMessage.tool_calls }
+            if assistantMessage.reasoning_content then
+                extra.reasoning_content = assistantMessage.reasoning_content
+                print("[AI CLI][DEBUG] 保留 reasoning_content，长度=" .. #assistantMessage.reasoning_content)
+            end
+            ctx:addMessage("assistant", assistantMessage.content or "", extra)
         else
             table.insert(messages, assistantMessage)
         end
@@ -292,7 +300,19 @@ function AIClient:chat(userMessage, systemPrompt, options)
         else
             followUpMessages = messages
         end
-        
+
+        -- DEBUG: 打印发送给 API 的消息结构
+        print(string.format("[AI CLI][DEBUG] follow-up 发送 %d 条消息:", #followUpMessages))
+        for i, msg in ipairs(followUpMessages) do
+            local hasToolCalls = msg.tool_calls and #msg.tool_calls > 0
+            local hasReasoning = msg.reasoning_content ~= nil
+            local contentLen = msg.content and #tostring(msg.content) or 0
+            print(string.format("[AI CLI][DEBUG]   [%d] role=%s content_len=%d tool_calls=%s reasoning=%s tool_call_id=%s",
+                i, tostring(msg.role), contentLen,
+                tostring(hasToolCalls), tostring(hasReasoning),
+                tostring(msg.tool_call_id or "")))
+        end
+
         local followUpBody = createRequestBody(provider, followUpMessages, options, tools)
         local followUpResponse = Http:jsonRequest(url, "POST", followUpBody, headers)
         
