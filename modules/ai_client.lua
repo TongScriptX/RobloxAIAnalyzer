@@ -144,15 +144,11 @@ function AIClient:chat(userMessage, systemPrompt, options)
     while assistantMessage.tool_calls and #assistantMessage.tool_calls > 0 and iteration < maxIterations do
         iteration = iteration + 1
 
-        print(string.format("[AI CLI][DEBUG] === 工具调用循环 iteration=%d, tool_calls=%d ===",
-            iteration, #assistantMessage.tool_calls))
-
         -- 添加助手消息到历史（保留 reasoning_content，DeepSeek 思考模式要求原样传回）
         if ctx then
             local extra = { tool_calls = assistantMessage.tool_calls }
             if assistantMessage.reasoning_content then
                 extra.reasoning_content = assistantMessage.reasoning_content
-                print("[AI CLI][DEBUG] 保留 reasoning_content，长度=" .. #assistantMessage.reasoning_content)
             end
             ctx:addMessage("assistant", assistantMessage.content or "", extra)
         else
@@ -170,8 +166,6 @@ function AIClient:chat(userMessage, systemPrompt, options)
             toolArgs = ok and parsed or {}
             
             print("[AI CLI] 执行工具: " .. toolName)
-            
-            -- 更新UI状态显示
             if UI then
                 local statusMap = {
                     ["scan_resources"] = "🔍 正在扫描游戏资源...",
@@ -231,7 +225,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
             local resultText = Tools and Tools:formatResult(result) or HttpService:JSONEncode(result)
             lastToolResults[toolName] = result
             
-            print("[AI CLI] 工具结果: " .. resultText:sub(1, 200))
+            print("[AI CLI] 工具结果: " .. resultText:sub(1, 100))
             
             -- 在对话中显示工具执行状态
             if UI then
@@ -305,18 +299,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
             followUpMessages = messages
         end
 
-        -- DEBUG: 打印发送给 API 的消息结构
-        print(string.format("[AI CLI][DEBUG] follow-up 发送 %d 条消息:", #followUpMessages))
-        for i, msg in ipairs(followUpMessages) do
-            local hasToolCalls = msg.tool_calls and #msg.tool_calls > 0
-            local hasReasoning = msg.reasoning_content ~= nil
-            local contentLen = msg.content and #tostring(msg.content) or 0
-            print(string.format("[AI CLI][DEBUG]   [%d] role=%s content_len=%d tool_calls=%s reasoning=%s tool_call_id=%s",
-                i, tostring(msg.role), contentLen,
-                tostring(hasToolCalls), tostring(hasReasoning),
-                tostring(msg.tool_call_id or "")))
-        end
-
+        print(string.format("[AI CLI] follow-up 请求，消息数=%d", #followUpMessages))
         local followUpBody = createRequestBody(provider, followUpMessages, options, tools)
         local followUpResponse = Http:jsonRequest(url, "POST", followUpBody, headers)
         
