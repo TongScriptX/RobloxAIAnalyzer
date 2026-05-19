@@ -45,8 +45,11 @@ local MODEL_LIMITS = {
     ["default"] = 32768
 }
 
--- 压缩阈值（当使用量超过此比例时自动压缩）
-local COMPRESS_THRESHOLD = 0.70  -- 使用70%时压缩
+-- 压缩阈值（参考 Claude Code：85% 触发压缩）
+local COMPRESS_THRESHOLD = 0.85
+
+-- 工具输出最大字符数（超出则截断，保留头尾）
+local TOOL_OUTPUT_MAX_CHARS = 30000
 
 -- 初始化
 function ContextManager:init()
@@ -89,24 +92,19 @@ function ContextManager:setModel(modelName, contextWindow)
     self.modelName = modelName
 end
 
--- 估算token数量（简化算法）
+-- 估算token数量（参考 Claude Code：英文4字符/token，中文1.5字符/token）
 function ContextManager:estimateTokens(text)
     if not text then return 0 end
-    
-    -- 中文：约1.5字符=1token
-    -- 英文：约4字符=1token
-    -- 混合估算：取中值约2.5字符=1token
-    
-    local chineseCount = 0
-    local totalLen = #text
-    
-    -- 统计中文字符
-    for _ in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-        -- 非ASCII字符
+
+    local chineseChars = 0
+    -- 统计 UTF-8 三字节序列（中日韩字符范围 U+4E00–U+9FFF 等）
+    for _ in text:gmatch("[\224-\239][\128-\191][\128-\191]") do
+        chineseChars = chineseChars + 1
     end
-    
-    -- 简单估算：总长度 / 2.5
-    return math.ceil(totalLen / 2.5)
+    local otherChars = #text - chineseChars * 3  -- 剩余字节视为 ASCII/英文
+
+    -- 中文约 1.5 字符/token，英文约 4 字符/token
+    return math.ceil(chineseChars / 1.5 + math.max(0, otherChars) / 4)
 end
 
 -- 计算消息的token数
@@ -192,9 +190,15 @@ function ContextManager:addAssistantMessage(content, toolCalls)
     return self:addMessage("assistant", content or "", extra)
 end
 
--- 添加工具结果
+-- 添加工具结果（超长输出自动截断，保留头尾）
 function ContextManager:addToolResult(toolCallId, content)
-    return self:addMessage("tool", content, { tool_call_id = toolCallId })
+    local text = tostring(content or "")
+    if #text > TOOL_OUTPUT_MAX_CHARS then
+        local head = text:sub(1, TOOL_OUTPUT_MAX_CHARS * 0.6)
+        local tail = text:sub(-math.floor(TOOL_OUTPUT_MAX_CHARS * 0.3))
+        text = head .. "\n...[output truncated]...\n" .. tail
+    end
+    return self:addMessage("tool", text, { tool_call_id = toolCallId })
 end
 
 -- 获取使用率
@@ -208,20 +212,16 @@ function ContextManager:shouldCompress()
     return self:getUsageRatio() >= COMPRESS_THRESHOLD
 end
 
--- 自动压缩
+-- 自动压缩（参考 Claude Code：保留 summary + 最近 4 条消息）
 function ContextManager:autoCompress()
-    -- 保留最近的对话，压缩旧的
-    local keepCount = 6  -- 保留最近3轮对话（6条消息）
+    local keepCount = 4  -- 保留最近 2 轮对话
 
     if #self.messages <= keepCount then
         return false, "消息数量太少，无需压缩"
     end
 
-    -- 计算安全的截断点：不能在 tool_calls/tool 消息组中间截断
-    -- 找到最后一个可以安全截断的位置（该位置之后不存在孤立的 tool 消息）
+    -- 安全截断：cutAt 之后的第一条消息不能是 tool（避免破坏 tool_calls/tool 配对）
     local cutAt = #self.messages - keepCount
-    -- 向前调整，确保 cutAt 之后的第一条消息不是 tool 消息
-    -- （tool 消息必须紧跟在对应的 assistant tool_calls 消息之后）
     while cutAt > 0 and self.messages[cutAt + 1] and self.messages[cutAt + 1].role == "tool" do
         cutAt = cutAt - 1
     end
@@ -230,49 +230,45 @@ function ContextManager:autoCompress()
         return false, "无法安全截断，跳过压缩"
     end
 
-    -- 提取要压缩的消息
     local toCompress = {}
     for i = 1, cutAt do
         table.insert(toCompress, self.messages[i])
     end
 
-    -- 生成摘要
-    local oldSummary = self.summary
-    self.summary = self:generateSummary(toCompress, oldSummary)
+    self.summary = self:generateSummary(toCompress, self.summary)
 
-    -- 移除已压缩的消息
     for i = 1, #toCompress do
         table.remove(self.messages, 1)
     end
 
-    -- 重新计算token
     self:recalculateTokens()
 
     return true, string.format("已压缩 %d 条消息", #toCompress)
 end
 
--- 生成摘要
+-- 生成摘要（记录用户问题、AI 结论、工具调用、生成代码）
 function ContextManager:generateSummary(messages, oldSummary)
     local parts = {}
-    
+
     if oldSummary then
         table.insert(parts, "【历史摘要】")
         table.insert(parts, oldSummary)
         table.insert(parts, "")
         table.insert(parts, "【新增对话】")
     end
-    
+
     local userQueries = {}
-    local aiResponses = {}
+    local aiConclusions = {}
     local toolsUsed = {}
     local codeGenerated = {}
-    
+
     for _, msg in ipairs(messages) do
         if msg.role == "user" then
             table.insert(userQueries, msg.content)
         elseif msg.role == "assistant" then
-            if msg.content then
-                -- 提取关键信息
+            if msg.content and msg.content ~= "" then
+                -- 取前 150 字作为结论摘要
+                table.insert(aiConclusions, msg.content:sub(1, 150))
                 local code = msg.content:match("```lua\n(.-)```")
                 if code then
                     table.insert(codeGenerated, code:sub(1, 200))
@@ -287,25 +283,39 @@ function ContextManager:generateSummary(messages, oldSummary)
             end
         end
     end
-    
-    -- 生成摘要
+
     if #userQueries > 0 then
         table.insert(parts, "用户问题:")
         for i, q in ipairs(userQueries) do
-            if i <= 5 then  -- 最多5个问题
-                table.insert(parts, "  - " .. q:sub(1, 100))
+            if i <= 5 then
+                table.insert(parts, "  - " .. q:sub(1, 120))
             end
         end
     end
-    
-    if #toolsUsed > 0 then
-        table.insert(parts, "使用工具: " .. table.concat(toolsUsed, ", "))
+
+    if #aiConclusions > 0 then
+        table.insert(parts, "AI 回复要点:")
+        for i, c in ipairs(aiConclusions) do
+            if i <= 3 then
+                table.insert(parts, "  - " .. c:gsub("\n", " "))
+            end
+        end
     end
-    
+
+    if #toolsUsed > 0 then
+        -- 去重
+        local seen = {}
+        local unique = {}
+        for _, t in ipairs(toolsUsed) do
+            if not seen[t] then seen[t] = true; table.insert(unique, t) end
+        end
+        table.insert(parts, "使用工具: " .. table.concat(unique, ", "))
+    end
+
     if #codeGenerated > 0 then
         table.insert(parts, "生成了 " .. #codeGenerated .. " 段代码")
     end
-    
+
     return table.concat(parts, "\n")
 end
 

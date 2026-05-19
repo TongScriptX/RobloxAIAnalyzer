@@ -368,28 +368,29 @@ function UI:toggleMinimize()
         end)
     else
         -- 从悬浮按钮展开
+        -- 直接设为正常尺寸但完全透明，避免宽度归零导致 TextLabel 竖排
         self.floatBtn.Visible = false
         self.mainFrame.Visible = true
-        self.mainFrame.Size = UDim2.new(0, 0, 0, 0)
+        self.mainFrame.Size = UDim2.new(0, self.currentWidth, 0, self.currentHeight)
         self.mainFrame.BackgroundTransparency = 1
         self.mainFrame.Position = self.savedPosition or UDim2.new(0.5, -self.currentWidth/2, 0.5, -self.currentHeight/2)
-        
-        -- 展开动画
+        -- 用裁剪代替尺寸缩放，防止子元素布局错乱
+        self.mainFrame.ClipsDescendants = true
+
+        -- 展开动画（只做透明度渐变，尺寸已经正确）
         local expandTween = TweenService:Create(self.mainFrame, tweenInfo, {
-            Size = UDim2.new(0, self.currentWidth, 0, self.currentHeight),
             Position = UDim2.new(0.5, -self.currentWidth/2, 0.5, -self.currentHeight/2),
             BackgroundTransparency = 0
         })
         expandTween:Play()
-        
+
         -- 展开完成后刷新消息区域布局
         expandTween.Completed:Connect(function()
-            -- 强制刷新消息区域的布局
+            self.mainFrame.ClipsDescendants = false
             if self.messageArea then
                 local listLayout = self.messageArea:FindFirstChild("UIListLayout")
                 if listLayout then
-                    -- 触发布局重新计算
-                    task.wait(0.1)
+                    task.wait(0.05)
                     self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
                 end
             end
