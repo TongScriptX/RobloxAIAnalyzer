@@ -204,10 +204,20 @@ function AIClient:chat(userMessage, systemPrompt, options)
             -- 检查是否需要用户确认
             if result.needsConfirmation then
                 print("[AI CLI] 需要用户确认运行脚本")
-                -- 把当前 tool 结果也存入上下文，保证后续 chat 调用时历史完整
+                -- 把当前 tool 结果存入上下文
                 local resultText = Tools and Tools:formatResult(result) or HttpService:JSONEncode(result)
                 if ctx then
                     ctx:addToolResult(toolCall.id, resultText)
+                    -- 为本次迭代中尚未处理的其余 tool_calls 补充占位结果，
+                    -- 保证 assistant tool_calls 与 tool 消息一一对应，防止 JSONEncode 失败
+                    local foundCurrent = false
+                    for _, otherCall in ipairs(assistantMessage.tool_calls) do
+                        if otherCall.id == toolCall.id then
+                            foundCurrent = true
+                        elseif foundCurrent then
+                            ctx:addToolResult(otherCall.id, "[pending: awaiting user confirmation]")
+                        end
+                    end
                 end
                 self._needsUserConfirmation = true
                 return {
