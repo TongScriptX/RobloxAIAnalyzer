@@ -79,9 +79,13 @@ function ContextManager:getModelLimit(modelName)
     return MODEL_LIMITS["default"]
 end
 
--- 设置当前模型
-function ContextManager:setModel(modelName)
-    self.maxTokens = self:getModelLimit(modelName)
+-- 设置当前模型（contextWindow 可选，优先级高于内置表）
+function ContextManager:setModel(modelName, contextWindow)
+    if contextWindow and contextWindow > 0 then
+        self.maxTokens = contextWindow
+    else
+        self.maxTokens = self:getModelLimit(modelName)
+    end
     self.modelName = modelName
 end
 

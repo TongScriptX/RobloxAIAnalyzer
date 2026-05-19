@@ -64,9 +64,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
     -- 获取或初始化上下文管理器
     local ctx = ContextManager and ContextManager.getInstance()
     
-    -- 设置当前模型（用于上下文限制）
+    -- 设置当前模型（用于上下文限制，优先使用 provider 配置的 contextWindow）
     if ctx then
-        ctx:setModel(currentModel)
+        ctx:setModel(currentModel, provider.contextWindow)
     end
     
     -- 准备消息（使用上下文管理器）
