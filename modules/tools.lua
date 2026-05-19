@@ -3,6 +3,54 @@
 
 local Tools = {}
 
+-- 会话级资源缓存：记录本次对话中已读取/搜索过的资源，避免 AI 重复查询
+Tools.resourceCache = {
+    scripts = {},    -- [name_lower] = {name, path, type, source, lines}
+    remotes = {},    -- [name_lower] = {name, path, type, ...}
+    searches = {},   -- [query_lower] = {count, results}
+}
+
+-- 清空资源缓存（新对话时调用）
+function Tools:clearCache()
+    self.resourceCache = { scripts = {}, remotes = {}, searches = {} }
+end
+
+-- 生成已知资源摘要（注入 system prompt，让 AI 知道哪些已读过）
+function Tools:getKnownResourcesSummary()
+    local parts = {}
+
+    local scriptNames = {}
+    for k in pairs(self.resourceCache.scripts) do
+        table.insert(scriptNames, self.resourceCache.scripts[k].name)
+    end
+    local remoteNames = {}
+    for k in pairs(self.resourceCache.remotes) do
+        table.insert(remoteNames, self.resourceCache.remotes[k].name)
+    end
+    local searchQueries = {}
+    for k in pairs(self.resourceCache.searches) do
+        table.insert(searchQueries, k)
+    end
+
+    if #scriptNames == 0 and #remoteNames == 0 and #searchQueries == 0 then
+        return nil
+    end
+
+    table.insert(parts, "【已读取的游戏资源（无需重复查询）】")
+    if #scriptNames > 0 then
+        table.insert(parts, "脚本: " .. table.concat(scriptNames, ", "))
+    end
+    if #remoteNames > 0 then
+        table.insert(parts, "Remote: " .. table.concat(remoteNames, ", "))
+    end
+    if #searchQueries > 0 then
+        table.insert(parts, "已搜索关键词: " .. table.concat(searchQueries, ", "))
+    end
+    table.insert(parts, "如需这些资源的内容，直接使用上下文中已有的信息，不要再次调用工具。")
+
+    return table.concat(parts, "\n")
+end
+
 -- 工具定义（用于发送给AI API）
 Tools.definitions = {
     {
@@ -381,13 +429,53 @@ function Tools:execute(toolName, args, context)
     local Scanner = context.Scanner
     local Reader = context.Reader
     local Executor = context.Executor
-    
+
     if toolName == "search_resources" then
-        return self:searchResources(args, Scanner)
+        -- 缓存：相同 query+type 直接返回
+        local cacheKey = (args.query or ""):lower() .. "|" .. (args.resource_type or "all")
+        if self.resourceCache.searches[cacheKey] then
+            local cached = self.resourceCache.searches[cacheKey]
+            return { query = args.query, count = cached.count, results = cached.results, _cached = true }
+        end
+        local result = self:searchResources(args, Scanner)
+        if not result.error then
+            self.resourceCache.searches[cacheKey] = { count = result.count, results = result.results }
+        end
+        return result
+
     elseif toolName == "read_script" then
-        return self:readScript(args, Reader, Scanner, Executor)
+        -- 缓存：无行范围限制时缓存完整源码；有行范围则不缓存（分段读取）
+        local nameKey = (args.name or ""):lower()
+        if not args.start_line and not args.end_line and self.resourceCache.scripts[nameKey] then
+            local cached = self.resourceCache.scripts[nameKey]
+            return { name = cached.name, type = cached.type, path = cached.path,
+                     source = cached.source, size = #cached.source, lines = cached.lines, _cached = true }
+        end
+        local result = self:readScript(args, Reader, Scanner, Executor)
+        if not result.error and not args.start_line and not args.end_line then
+            self.resourceCache.scripts[nameKey] = {
+                name = result.name, type = result.type, path = result.path,
+                source = result.source or "", lines = result.lines or 0
+            }
+        end
+        return result
+
     elseif toolName == "get_remote_info" then
-        return self:getRemoteInfo(args, Scanner)
+        local nameKey = (args.name or ""):lower()
+        if self.resourceCache.remotes[nameKey] then
+            local cached = self.resourceCache.remotes[nameKey]
+            return { name = cached.name, type = cached.type, path = cached.path,
+                     parameters = cached.parameters, example = cached.example, _cached = true }
+        end
+        local result = self:getRemoteInfo(args, Scanner)
+        if not result.error then
+            self.resourceCache.remotes[nameKey] = {
+                name = result.name, type = result.type, path = result.path,
+                parameters = result.parameters, example = result.example
+            }
+        end
+        return result
+
     elseif toolName == "list_resources" then
         return self:listResources(args, Scanner)
     elseif toolName == "search_in_script" then

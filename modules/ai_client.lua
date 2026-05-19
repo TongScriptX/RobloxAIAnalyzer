@@ -651,14 +651,20 @@ Be concise. Generate working Lua code when asked. Respond in Chinese.]]
             #(resourceContext.scripts or {})
         )
     end
-    
+
+    -- 注入已知资源摘要，防止 AI 重复查询同一资源
+    local knownSummary = Tools and Tools:getKnownResourcesSummary()
+    if knownSummary then
+        systemPrompt = systemPrompt .. "\n\n" .. knownSummary
+    end
+
     local userMessage
     if contextSummary ~= "" then
         userMessage = contextSummary .. "\n\n" .. query
     else
         userMessage = query
     end
-    
+
     return self:chat(userMessage, systemPrompt, options)
 end
 
@@ -700,13 +706,15 @@ end
 
 -- 清空上下文
 function AIClient:clearContext()
-    local _, _, _, _, _, ContextManager = getDeps()
-    
+    local _, _, Tools, _, _, ContextManager = getDeps()
+
     if not ContextManager then
         return false, "ContextManager not loaded"
     end
-    
+
     ContextManager.reset()
+    -- 同步清空工具资源缓存，新对话从零开始
+    if Tools then Tools:clearCache() end
     return true, "上下文已清空"
 end
 
