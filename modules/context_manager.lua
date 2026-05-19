@@ -326,10 +326,41 @@ function ContextManager:clear()
     self.totalTokens = 0
 end
 
+-- 净化单条消息，只保留 API 需要的字段，防止 JSONEncode 失败
+local function sanitizeMessage(msg)
+    local clean = {
+        role = tostring(msg.role or ""),
+        content = msg.content ~= nil and tostring(msg.content) or nil,
+    }
+    -- tool 消息
+    if msg.tool_call_id then
+        clean.tool_call_id = tostring(msg.tool_call_id)
+    end
+    -- assistant 消息的 tool_calls
+    if msg.tool_calls then
+        clean.tool_calls = {}
+        for _, tc in ipairs(msg.tool_calls) do
+            local cleanTc = { id = tostring(tc.id or ""), type = tostring(tc.type or "function") }
+            if tc["function"] then
+                cleanTc["function"] = {
+                    name = tostring(tc["function"].name or ""),
+                    arguments = tostring(tc["function"].arguments or "{}")
+                }
+            end
+            table.insert(clean.tool_calls, cleanTc)
+        end
+    end
+    -- DeepSeek 思考模式：reasoning_content 必须原样传回
+    if msg.reasoning_content ~= nil then
+        clean.reasoning_content = tostring(msg.reasoning_content)
+    end
+    return clean
+end
+
 -- 获取用于API的消息列表
 function ContextManager:getMessagesForAPI(systemPrompt)
     local result = {}
-    
+
     -- 系统提示
     if systemPrompt then
         table.insert(result, {
@@ -337,7 +368,7 @@ function ContextManager:getMessagesForAPI(systemPrompt)
             content = systemPrompt
         })
     end
-    
+
     -- 如果有摘要，添加摘要作为上下文
     if self.summary then
         table.insert(result, {
@@ -345,12 +376,12 @@ function ContextManager:getMessagesForAPI(systemPrompt)
             content = "【对话历史摘要】\n" .. self.summary
         })
     end
-    
-    -- 添加对话历史
+
+    -- 添加对话历史（净化后再加入，防止 JSONEncode 失败）
     for _, msg in ipairs(self.messages) do
-        table.insert(result, msg)
+        table.insert(result, sanitizeMessage(msg))
     end
-    
+
     return result
 end
 

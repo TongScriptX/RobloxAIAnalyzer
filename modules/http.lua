@@ -185,7 +185,14 @@ end
 function Http:jsonRequest(url, method, data, headers)
     local bodyData = ""
     if data then
-        bodyData = game:GetService("HttpService"):JSONEncode(data)
+        local ok, encoded = pcall(function()
+            return game:GetService("HttpService"):JSONEncode(data)
+        end)
+        if not ok then
+            warn("[HTTP] JSONEncode failed: " .. tostring(encoded))
+            return { statusCode = 0, body = "", headers = {}, success = false, error = "JSONEncode failed: " .. tostring(encoded) }
+        end
+        bodyData = encoded
     end
     
     local finalHeaders = headers or {}
