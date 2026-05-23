@@ -368,30 +368,29 @@ function UI:toggleMinimize()
         end)
     else
         -- 从悬浮按钮展开
-        -- 直接设为正常尺寸但完全透明，避免宽度归零导致 TextLabel 竖排
         self.floatBtn.Visible = false
+        -- 先隐藏内容，避免在尺寸恢复过程中子元素短暂宽度为0导致 TextLabel 竖排
+        if self.mainContent then self.mainContent.Visible = false end
         self.mainFrame.Visible = true
         self.mainFrame.Size = UDim2.new(0, self.currentWidth, 0, self.currentHeight)
         self.mainFrame.BackgroundTransparency = 1
         self.mainFrame.Position = self.savedPosition or UDim2.new(0.5, -self.currentWidth/2, 0.5, -self.currentHeight/2)
-        -- 用裁剪代替尺寸缩放，防止子元素布局错乱
-        self.mainFrame.ClipsDescendants = true
 
-        -- 展开动画（只做透明度渐变，尺寸已经正确）
+        -- 展开动画（只做透明度渐变，尺寸已经正确，不使用 ClipsDescendants）
         local expandTween = TweenService:Create(self.mainFrame, tweenInfo, {
-            Position = UDim2.new(0.5, -self.currentWidth/2, 0.5, -self.currentHeight/2),
             BackgroundTransparency = 0
         })
         expandTween:Play()
 
-        -- 展开完成后刷新消息区域布局
+        -- 展开完成后恢复内容并刷新消息区域布局
         expandTween.Completed:Connect(function()
-            self.mainFrame.ClipsDescendants = false
+            if self.mainContent then self.mainContent.Visible = true end
             if self.messageArea then
                 local listLayout = self.messageArea:FindFirstChild("UIListLayout")
                 if listLayout then
                     task.wait(0.05)
                     self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+                    self.messageArea.CanvasPosition = Vector2.new(0, listLayout.AbsoluteContentSize.Y)
                 end
             end
         end)
@@ -1331,28 +1330,35 @@ function UI:createSettingsView()
     -- 创建滚动容器
     local scrollFrame = Instance.new("ScrollingFrame", settingsFrame)
     scrollFrame.Name = "SettingsScroll"
-    scrollFrame.Size = UDim2.new(1, -8, 1, 0)
-    scrollFrame.Position = UDim2.new(0, 4, 0, 0)
+    scrollFrame.Size = UDim2.new(1, 0, 1, 0)
+    scrollFrame.Position = UDim2.new(0, 0, 0, 0)
     scrollFrame.BackgroundTransparency = 1
     scrollFrame.ScrollBarThickness = 4
     scrollFrame.ScrollBarImageColor3 = self.Theme.accent
     scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
     scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    
+
     local layout = Instance.new("UIListLayout", scrollFrame)
     layout.Padding = UDim.new(0, 8)
+
+    -- 统一内边距，避免子元素各自设 offset 导致双重缩减
+    local scrollPadding = Instance.new("UIPadding", scrollFrame)
+    scrollPadding.PaddingTop = UDim.new(0, 4)
+    scrollPadding.PaddingBottom = UDim.new(0, 8)
+    scrollPadding.PaddingLeft = UDim.new(0, 6)
+    scrollPadding.PaddingRight = UDim.new(0, 10)
     
     -- ========== 执行器信息 ==========
     local executorSection = Instance.new("TextLabel", scrollFrame)
-    executorSection.Size = UDim2.new(1, -8, 0, 20)
+    executorSection.Size = UDim2.new(1, 0, 0, 20)
     executorSection.BackgroundTransparency = 1
     executorSection.Text = "── 执行器信息 ──"
     executorSection.TextColor3 = self.Theme.textSecondary
     executorSection.TextSize = 12
     executorSection.Font = Enum.Font.GothamBold
-    
+
     local executorInfo = Instance.new("Frame", scrollFrame)
-    executorInfo.Size = UDim2.new(1, -8, 0, 50)
+    executorInfo.Size = UDim2.new(1, 0, 0, 50)
     executorInfo.BackgroundColor3 = self.Theme.backgroundTertiary
     executorInfo.BorderSizePixel = 0
     createCorner(executorInfo, 6)
@@ -1369,9 +1375,8 @@ function UI:createSettingsView()
     executorLabel.TextYAlignment = Enum.TextYAlignment.Top
     executorLabel.TextWrapped = true
     
-    -- ========== API 配置 ==========
     local apiSection = Instance.new("TextLabel", scrollFrame)
-    apiSection.Size = UDim2.new(1, -8, 0, 20)
+    apiSection.Size = UDim2.new(1, 0, 0, 20)
     apiSection.BackgroundTransparency = 1
     apiSection.Text = "── API 配置 ──"
     apiSection.TextColor3 = self.Theme.textSecondary
@@ -1380,7 +1385,7 @@ function UI:createSettingsView()
 
     -- Base URL
     local baseUrlLabel = Instance.new("TextLabel", scrollFrame)
-    baseUrlLabel.Size = UDim2.new(1, -8, 0, 16)
+    baseUrlLabel.Size = UDim2.new(1, 0, 0, 16)
     baseUrlLabel.BackgroundTransparency = 1
     baseUrlLabel.Text = "Base URL"
     baseUrlLabel.TextColor3 = self.Theme.text
@@ -1390,7 +1395,7 @@ function UI:createSettingsView()
 
     local baseUrlInput = Instance.new("TextBox", scrollFrame)
     baseUrlInput.Name = "BaseUrlInput"
-    baseUrlInput.Size = UDim2.new(1, -8, 0, 28)
+    baseUrlInput.Size = UDim2.new(1, 0, 0, 28)
     baseUrlInput.BackgroundColor3 = self.Theme.backgroundTertiary
     baseUrlInput.BorderSizePixel = 0
     baseUrlInput.PlaceholderText = "例如: https://api.openai.com"
@@ -1404,7 +1409,7 @@ function UI:createSettingsView()
 
     -- API Key
     local apiLabel = Instance.new("TextLabel", scrollFrame)
-    apiLabel.Size = UDim2.new(1, -8, 0, 16)
+    apiLabel.Size = UDim2.new(1, 0, 0, 16)
     apiLabel.BackgroundTransparency = 1
     apiLabel.Text = "API Key"
     apiLabel.TextColor3 = self.Theme.text
@@ -1414,7 +1419,7 @@ function UI:createSettingsView()
 
     local apiInput = Instance.new("TextBox", scrollFrame)
     apiInput.Name = "ApiKeyInput"
-    apiInput.Size = UDim2.new(1, -8, 0, 28)
+    apiInput.Size = UDim2.new(1, 0, 0, 28)
     apiInput.BackgroundColor3 = self.Theme.backgroundTertiary
     apiInput.BorderSizePixel = 0
     apiInput.PlaceholderText = "输入你的API Key..."
@@ -1429,7 +1434,7 @@ function UI:createSettingsView()
     -- Model Name
     local modelLabel = Instance.new("TextLabel", scrollFrame)
     modelLabel.Name = "ModelLabel"
-    modelLabel.Size = UDim2.new(1, -8, 0, 16)
+    modelLabel.Size = UDim2.new(1, 0, 0, 16)
     modelLabel.BackgroundTransparency = 1
     modelLabel.Text = "模型名称"
     modelLabel.TextColor3 = self.Theme.text
@@ -1439,7 +1444,7 @@ function UI:createSettingsView()
 
     local modelInput = Instance.new("TextBox", scrollFrame)
     modelInput.Name = "ModelInput"
-    modelInput.Size = UDim2.new(1, -8, 0, 28)
+    modelInput.Size = UDim2.new(1, 0, 0, 28)
     modelInput.BackgroundColor3 = self.Theme.backgroundTertiary
     modelInput.BorderSizePixel = 0
     modelInput.PlaceholderText = "例如: gpt-4o-mini"
@@ -1458,26 +1463,26 @@ function UI:createSettingsView()
     
     -- ========== 脚本设置 ==========
     local scriptSection = Instance.new("TextLabel", scrollFrame)
-    scriptSection.Size = UDim2.new(1, -8, 0, 20)
+    scriptSection.Size = UDim2.new(1, 0, 0, 20)
     scriptSection.BackgroundTransparency = 1
     scriptSection.Text = "── 脚本设置 ──"
     scriptSection.TextColor3 = self.Theme.textSecondary
     scriptSection.TextSize = 12
     scriptSection.Font = Enum.Font.GothamBold
-    
+
     -- 脚本保存目录
     local dirLabel = Instance.new("TextLabel", scrollFrame)
-    dirLabel.Size = UDim2.new(1, -8, 0, 16)
+    dirLabel.Size = UDim2.new(1, 0, 0, 16)
     dirLabel.BackgroundTransparency = 1
     dirLabel.Text = "脚本保存目录 (留空使用默认)"
     dirLabel.TextColor3 = self.Theme.text
     dirLabel.TextSize = 12
     dirLabel.Font = Enum.Font.GothamBold
     dirLabel.TextXAlignment = Enum.TextXAlignment.Left
-    
+
     local dirInput = Instance.new("TextBox", scrollFrame)
     dirInput.Name = "ScriptDirInput"
-    dirInput.Size = UDim2.new(1, -8, 0, 28)
+    dirInput.Size = UDim2.new(1, 0, 0, 28)
     dirInput.BackgroundColor3 = self.Theme.backgroundTertiary
     dirInput.BorderSizePixel = 0
     dirInput.PlaceholderText = "例如: workspace 或自定义路径"
@@ -1492,7 +1497,7 @@ function UI:createSettingsView()
     -- 选项：执行前确认
     local confirmBtn = Instance.new("TextButton", scrollFrame)
     confirmBtn.Name = "ConfirmToggle"
-    confirmBtn.Size = UDim2.new(1, -8, 0, 28)
+    confirmBtn.Size = UDim2.new(1, 0, 0, 28)
     confirmBtn.BackgroundColor3 = self.Theme.backgroundTertiary
     confirmBtn.BorderSizePixel = 0
     confirmBtn.Text = "  执行前确认: 开启"
@@ -1504,17 +1509,17 @@ function UI:createSettingsView()
     
     -- ========== 运行模式选择 ==========
     local runModeLabel = Instance.new("TextLabel", scrollFrame)
-    runModeLabel.Size = UDim2.new(1, -8, 0, 16)
+    runModeLabel.Size = UDim2.new(1, 0, 0, 16)
     runModeLabel.BackgroundTransparency = 1
     runModeLabel.Text = "脚本运行模式"
     runModeLabel.TextColor3 = self.Theme.text
     runModeLabel.TextSize = 12
     runModeLabel.Font = Enum.Font.GothamBold
     runModeLabel.TextXAlignment = Enum.TextXAlignment.Left
-    
+
     local runModeFrame = Instance.new("Frame", scrollFrame)
     runModeFrame.Name = "RunModeFrame"
-    runModeFrame.Size = UDim2.new(1, -8, 0, 36)
+    runModeFrame.Size = UDim2.new(1, 0, 0, 36)
     runModeFrame.BackgroundColor3 = self.Theme.backgroundTertiary
     runModeFrame.BorderSizePixel = 0
     createCorner(runModeFrame, 6)
@@ -1553,7 +1558,7 @@ function UI:createSettingsView()
     -- 模式说明
     local modeDescLabel = Instance.new("TextLabel", scrollFrame)
     modeDescLabel.Name = "ModeDescLabel"
-    modeDescLabel.Size = UDim2.new(1, -8, 0, 32)
+    modeDescLabel.Size = UDim2.new(1, 0, 0, 32)
     modeDescLabel.BackgroundTransparency = 1
     modeDescLabel.Text = "智能: 低风险自动执行 | 默认: 每次询问 | YOLO: 从不询问"
     modeDescLabel.TextColor3 = self.Theme.textSecondary
@@ -1563,16 +1568,16 @@ function UI:createSettingsView()
     
     -- ========== Token 统计 ==========
     local tokenSection = Instance.new("TextLabel", scrollFrame)
-    tokenSection.Size = UDim2.new(1, -8, 0, 20)
+    tokenSection.Size = UDim2.new(1, 0, 0, 20)
     tokenSection.BackgroundTransparency = 1
     tokenSection.Text = "── Token 统计 ──"
     tokenSection.TextColor3 = self.Theme.textSecondary
     tokenSection.TextSize = 12
     tokenSection.Font = Enum.Font.GothamBold
-    
+
     local tokenInfo = Instance.new("Frame", scrollFrame)
     tokenInfo.Name = "TokenInfo"
-    tokenInfo.Size = UDim2.new(1, -8, 0, 60)
+    tokenInfo.Size = UDim2.new(1, 0, 0, 60)
     tokenInfo.BackgroundColor3 = self.Theme.backgroundTertiary
     tokenInfo.BorderSizePixel = 0
     createCorner(tokenInfo, 6)
@@ -1592,7 +1597,7 @@ function UI:createSettingsView()
     
     local resetTokenBtn = Instance.new("TextButton", scrollFrame)
     resetTokenBtn.Name = "ResetTokenBtn"
-    resetTokenBtn.Size = UDim2.new(1, -8, 0, 24)
+    resetTokenBtn.Size = UDim2.new(1, 0, 0, 24)
     resetTokenBtn.BackgroundColor3 = self.Theme.backgroundSecondary
     resetTokenBtn.BorderSizePixel = 0
     resetTokenBtn.Text = "重置统计"
@@ -1603,15 +1608,15 @@ function UI:createSettingsView()
     
     -- ========== 操作按钮 ==========
     local actionSection = Instance.new("TextLabel", scrollFrame)
-    actionSection.Size = UDim2.new(1, -8, 0, 20)
+    actionSection.Size = UDim2.new(1, 0, 0, 20)
     actionSection.BackgroundTransparency = 1
     actionSection.Text = "── 操作 ──"
     actionSection.TextColor3 = self.Theme.textSecondary
     actionSection.TextSize = 12
     actionSection.Font = Enum.Font.GothamBold
-    
+
     local actionBtns = Instance.new("Frame", scrollFrame)
-    actionBtns.Size = UDim2.new(1, -8, 0, 32)
+    actionBtns.Size = UDim2.new(1, 0, 0, 32)
     actionBtns.BackgroundTransparency = 1
     
     local saveBtn = Instance.new("TextButton", actionBtns)
