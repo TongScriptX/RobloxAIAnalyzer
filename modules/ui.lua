@@ -892,134 +892,149 @@ function UI:clearPendingCodeInfo()
     self.pendingCodeInfo = nil
 end
 
--- Markdown转Roblox RichText（处理行内格式）
-local function markdownToRichText(text)
+-- 转义 RichText 特殊字符
+local function escapeRichText(s)
+    return (s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
+end
+
+-- 处理行内 Markdown 格式（加粗、斜体、行内代码、删除线、下划线、链接）
+local function inlineToRichText(text)
     if not text then return "" end
-    
-    -- 先转义特殊字符（避免与RichText标签冲突）
-    text = text:gsub("<", "&lt;")
-    text = text:gsub(">", "&gt;")
-    
-    -- 按顺序处理，从复杂到简单
-    
-    -- 1. ***粗体斜体*** → <b><i>粗体斜体</i></b>
-    -- 使用更精确的模式，匹配非星号字符
-    text = text:gsub("%*%*%*([^%*]+)%*%*%*", "<b><i>%1</i></b>")
-    
-    -- 2. **粗体** → <b>粗体</b>
-    text = text:gsub("%*%*([^%*]+)%*%*", "<b>%1</b>")
-    
-    -- 3. *斜体* → <i>斜体</i>
-    -- 匹配单个星号包围的非星号内容
-    text = text:gsub("%*([^%*%s][^%*]-[^%*%s])%*", "<i>%1</i>")
-    -- 也匹配单个字符的情况如 *a*
+    text = escapeRichText(text)
+    -- ***粗斜体***
+    text = text:gsub("%*%*%*(.-)%*%*%*", "<b><i>%1</i></b>")
+    -- **粗体**
+    text = text:gsub("%*%*(.-)%*%*", "<b>%1</b>")
+    -- *斜体* 或 _斜体_（不匹配空白边界）
+    text = text:gsub("%*([^%*%s][^%*]-)%*", "<i>%1</i>")
     text = text:gsub("%*([^%*%s])%*", "<i>%1</i>")
-    
-    -- 4. __下划线__ → <u>下划线</u>
-    text = text:gsub("__([^_]+)__", "<u>%1</u>")
-    
-    -- 5. ~~删除线~~ → <s>删除线</s>
-    text = text:gsub("~~([^~]+)~~", "<s>%1</s>")
-    
-    -- 6. ==高亮== → <mark>高亮</mark>
-    text = text:gsub("==([^=]+)==", '<mark color="#FFD700">%1</mark>')
-    
-    -- 7. `行内代码` → 橙色字体
-    text = text:gsub("`([^`]+)`", '<font color="#FF9800">%1</font>')
-    
-    -- 8. 处理标题 (# 开头) - 需要按行处理
-    local lines = {}
-    for line in text:gmatch("[^\n]*") do
-        -- ### 标题
-        if line:match("^###%s+") then
-            line = line:gsub("^###%s+", '<font size="16"><b>') .. "</b></font>"
-        -- ## 标题
-        elseif line:match("^##%s+") then
-            line = line:gsub("^##%s+", '<font size="18"><b>') .. "</b></font>"
-        -- # 标题
-        elseif line:match("^#%s+") then
-            line = line:gsub("^#%s+", '<font size="20"><b>') .. "</b></font>"
-        end
-        -- 列表项
-        if line:match("^%s*%-%s") then
-            line = line:gsub("^(%s*)%-%s", "%1• ")
-        end
-        table.insert(lines, line)
-    end
-    text = table.concat(lines, "\n")
-    
-    -- 9. 处理链接 [文字](url) → 文字
-    text = text:gsub("%[([^%]]+)%]%([^%)]+%)", "%1")
-    
+    text = text:gsub("_([^_%s][^_]-)_", "<i>%1</i>")
+    -- __下划线__
+    text = text:gsub("__(.-)__", "<u>%1</u>")
+    -- ~~删除线~~
+    text = text:gsub("~~(.-)~~", "<s>%1</s>")
+    -- `行内代码`
+    text = text:gsub("`([^`]+)`", '<font color="#E8A87C" face="RobotoMono">%1</font>')
+    -- [链接文字](url) → 只保留文字
+    text = text:gsub("%[([^%]]+)%]%([^%)]*%)", '<font color="#58A6FF">%1</font>')
     return text
 end
 
--- Markdown解析（处理代码块和行内格式）
+--[[
+  parseMarkdown: 将 Markdown 文本解析为结构化 block 列表。
+  block 类型：
+    {type="h1"|"h2"|"h3", richText=}     标题
+    {type="hr"}                           分割线
+    {type="quote", richText=}             引用块
+    {type="ul", richText=, indent=}       无序列表项
+    {type="ol", richText=, index=, indent=} 有序列表项
+    {type="text", richText=}              普通段落（可含空行）
+    {type="code", language=, content=}   代码块
+]]
 local function parseMarkdown(text)
-    -- 防止nil值
     if not text or type(text) ~= "string" then
-        return {{type = "text", content = tostring(text or ""), richText = tostring(text or "")}}
+        return {{type = "text", richText = escapeRichText(tostring(text or ""))}}
     end
-    
+
     local blocks = {}
+
+    -- 第一步：按 ``` 代码块拆分成「文本段」和「代码段」交替的片段
+    local segments = {}
     local pos = 1
     local len = #text
-    
     while pos <= len do
-        local codeStart = text:find("```", pos)
-        
-        if codeStart then
-            -- 代码块前的文本
-            if codeStart > pos then
-                local beforeText = text:sub(pos, codeStart - 1)
-                if beforeText:match("%S") then
-                    table.insert(blocks, {
-                        type = "text",
-                        content = beforeText,
-                        richText = markdownToRichText(beforeText)
-                    })
-                end
+        local s = text:find("```", pos, true)
+        if s then
+            if s > pos then
+                table.insert(segments, {isCode = false, text = text:sub(pos, s - 1)})
             end
-            
-            -- 提取语言标识
-            local afterStart = text:sub(codeStart + 3)
-            local langEnd = afterStart:find("\n") or 1
-            local lang = afterStart:sub(1, langEnd - 1):match("^%s*(%w*)%s*$") or ""
-            
-            -- 提取代码内容
-            local codeContentStart = codeStart + 3 + langEnd
-            local codeEnd = text:find("```", codeContentStart)
-            
-            if codeEnd then
-                local code = text:sub(codeContentStart, codeEnd - 1)
-                table.insert(blocks, {type = "code", language = lang, content = code})
-                pos = codeEnd + 3
+            -- 找语言标识（``` 后到换行）
+            local afterFence = text:sub(s + 3)
+            local nlPos = afterFence:find("\n") or 0
+            local lang = afterFence:sub(1, nlPos - 1):match("^%s*([%w_+-]*)%s*$") or ""
+            local codeStart = s + 3 + nlPos
+            local e = text:find("```", codeStart, true)
+            if e then
+                table.insert(segments, {isCode = true, lang = lang, text = text:sub(codeStart, e - 1)})
+                pos = e + 3
             else
-                table.insert(blocks, {
-                    type = "text",
-                    content = text:sub(pos),
-                    richText = markdownToRichText(text:sub(pos))
-                })
+                -- 未闭合：剩余全当文本
+                table.insert(segments, {isCode = false, text = text:sub(s)})
                 break
             end
         else
-            -- 剩余文本
-            local remaining = text:sub(pos)
-            if remaining:match("%S") then
-                table.insert(blocks, {
-                    type = "text",
-                    content = remaining,
-                    richText = markdownToRichText(remaining)
-                })
-            end
+            table.insert(segments, {isCode = false, text = text:sub(pos)})
             break
         end
     end
-    
-    if #blocks == 0 then
-        return {{type = "text", content = text, richText = markdownToRichText(text)}}
+
+    -- 第二步：解析文本段中的行级 Markdown
+    for _, seg in ipairs(segments) do
+        if seg.isCode then
+            table.insert(blocks, {type = "code", language = seg.lang or "", content = seg.text})
+        else
+            -- 逐行解析
+            local paraLines = {}  -- 累积普通段落行
+
+            local function flushPara()
+                if #paraLines > 0 then
+                    local combined = table.concat(paraLines, "\n")
+                    if combined:match("%S") then
+                        table.insert(blocks, {type = "text", richText = inlineToRichText(combined)})
+                    end
+                    paraLines = {}
+                end
+            end
+
+            for line in (seg.text .. "\n"):gmatch("([^\n]*)\n") do
+                -- 分割线 --- / *** / ===
+                if line:match("^%s*[-*=]{3,}%s*$") then
+                    flushPara()
+                    table.insert(blocks, {type = "hr"})
+                -- H1
+                elseif line:match("^#%s+") then
+                    flushPara()
+                    local content = line:match("^#+%s+(.*)")
+                    table.insert(blocks, {type = "h1", richText = inlineToRichText(content)})
+                -- H2
+                elseif line:match("^##%s+") then
+                    flushPara()
+                    local content = line:match("^#+%s+(.*)")
+                    table.insert(blocks, {type = "h2", richText = inlineToRichText(content)})
+                -- H3
+                elseif line:match("^###%s+") then
+                    flushPara()
+                    local content = line:match("^#+%s+(.*)")
+                    table.insert(blocks, {type = "h3", richText = inlineToRichText(content)})
+                -- 引用 >
+                elseif line:match("^>%s?") then
+                    flushPara()
+                    local content = line:match("^>%s?(.*)")
+                    table.insert(blocks, {type = "quote", richText = inlineToRichText(content)})
+                -- 无序列表 - / * / +
+                elseif line:match("^(%s*)[-*+]%s+") then
+                    flushPara()
+                    local indent, content = line:match("^(%s*)[-*+]%s+(.*)")
+                    table.insert(blocks, {type = "ul", richText = inlineToRichText(content), indent = math.floor(#indent / 2)})
+                -- 有序列表 1.
+                elseif line:match("^(%s*)%d+%.%s+") then
+                    flushPara()
+                    local indent, num, content = line:match("^(%s*)(%d+)%.%s+(.*)")
+                    table.insert(blocks, {type = "ol", richText = inlineToRichText(content), index = tonumber(num) or 1, indent = math.floor(#indent / 2)})
+                -- 空行：段落分隔
+                elseif line:match("^%s*$") then
+                    flushPara()
+                else
+                    table.insert(paraLines, line)
+                end
+            end
+            flushPara()
+        end
     end
-    
+
+    if #blocks == 0 then
+        return {{type = "text", richText = inlineToRichText(text)}}
+    end
     return blocks
 end
 
@@ -1162,56 +1177,110 @@ function UI:addMessage(text, isUser, reasoning)
     
     -- 存储所有代码块用于操作
     local codeBlocks = {}
-    
+
+    -- 辅助：创建带 RichText 的 TextLabel
+    local function makeTextLabel(parent, richText, textSize, font, color, leftPad)
+        local lbl = Instance.new("TextLabel", parent)
+        lbl.Size = UDim2.new(1, leftPad and -leftPad or 0, 0, 0)
+        if leftPad and leftPad > 0 then
+            lbl.Position = UDim2.new(0, leftPad, 0, 0)
+        end
+        lbl.BackgroundTransparency = 1
+        lbl.RichText = true
+        lbl.Text = richText
+        lbl.TextColor3 = color or self.Theme.text
+        lbl.TextSize = textSize or 13
+        lbl.Font = font or Enum.Font.Gotham
+        lbl.TextWrapped = true
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.AutomaticSize = Enum.AutomaticSize.Y
+        return lbl
+    end
+
+    local textColor = isUser and Color3.new(1, 1, 1) or self.Theme.text
+
     for _, block in ipairs(blocks) do
-        if block.type == "text" and block.content:match("%S") then
-            -- 文本块（支持RichText）
-            local textLabel = Instance.new("TextLabel", container)
-            textLabel.Size = UDim2.new(1, 0, 0, 0)
-            textLabel.BackgroundTransparency = 1
-            textLabel.RichText = true  -- 启用富文本
-            textLabel.Text = block.richText or block.content
-            textLabel.TextColor3 = isUser and Color3.new(1, 1, 1) or self.Theme.text
-            textLabel.TextSize = 13
-            textLabel.Font = Enum.Font.Gotham
-            textLabel.TextWrapped = true
-            textLabel.TextXAlignment = Enum.TextXAlignment.Left
-            textLabel.AutomaticSize = Enum.AutomaticSize.Y
-        elseif block.type == "code" then
-            -- 代码块
+        local t = block.type
+
+        if t == "h1" then
+            makeTextLabel(container, block.richText, 20, Enum.Font.GothamBold, textColor)
+
+        elseif t == "h2" then
+            makeTextLabel(container, block.richText, 17, Enum.Font.GothamBold, textColor)
+
+        elseif t == "h3" then
+            makeTextLabel(container, block.richText, 14, Enum.Font.GothamBold, textColor)
+
+        elseif t == "hr" then
+            local hr = Instance.new("Frame", container)
+            hr.Size = UDim2.new(1, 0, 0, 1)
+            hr.BackgroundColor3 = self.Theme.border
+            hr.BorderSizePixel = 0
+
+        elseif t == "quote" then
+            local qWrap = Instance.new("Frame", container)
+            qWrap.Size = UDim2.new(1, 0, 0, 0)
+            qWrap.AutomaticSize = Enum.AutomaticSize.Y
+            qWrap.BackgroundColor3 = Color3.fromRGB(45, 50, 65)
+            qWrap.BorderSizePixel = 0
+            createCorner(qWrap, 4)
+            local bar = Instance.new("Frame", qWrap)
+            bar.Size = UDim2.new(0, 3, 1, 0)
+            bar.BackgroundColor3 = self.Theme.accent
+            bar.BorderSizePixel = 0
+            createCorner(bar, 2)
+            makeTextLabel(qWrap, block.richText, 12, Enum.Font.GothamItalic,
+                self.Theme.textSecondary, 10)
+
+        elseif t == "ul" then
+            local indent = (block.indent or 0) * 14
+            local bullet = indent == 0 and "•" or "◦"
+            local lbl = makeTextLabel(container,
+                bullet .. "  " .. block.richText,
+                13, Enum.Font.Gotham, textColor, indent)
+
+        elseif t == "ol" then
+            local indent = (block.indent or 0) * 14
+            local lbl = makeTextLabel(container,
+                tostring(block.index) .. ".  " .. block.richText,
+                13, Enum.Font.Gotham, textColor, indent)
+
+        elseif t == "text" then
+            if block.richText and block.richText:match("%S") then
+                makeTextLabel(container, block.richText, 13, Enum.Font.Gotham, textColor)
+            end
+
+        elseif t == "code" then
             local codeFrame = Instance.new("Frame", container)
             codeFrame.Size = UDim2.new(1, 0, 0, 0)
+            codeFrame.AutomaticSize = Enum.AutomaticSize.Y
             codeFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
             codeFrame.BorderSizePixel = 0
-            codeFrame.AutomaticSize = Enum.AutomaticSize.Y
             createCorner(codeFrame, 6)
-            
-            -- 代码头部（语言标签 + 按钮）
+
+            -- 代码头部
             local codeHeader = Instance.new("Frame", codeFrame)
             codeHeader.Name = "Header"
             codeHeader.Size = UDim2.new(1, 0, 0, 28)
             codeHeader.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
             codeHeader.BorderSizePixel = 0
             createCorner(codeHeader, 6)
-            
-            -- 语言标签
+
             local langLabel = Instance.new("TextLabel", codeHeader)
             langLabel.Size = UDim2.new(0, 60, 1, 0)
             langLabel.Position = UDim2.new(0, 8, 0, 0)
             langLabel.BackgroundTransparency = 1
-            langLabel.Text = block.language:upper()
+            langLabel.Text = (block.language ~= "" and block.language or "CODE"):upper()
             langLabel.TextColor3 = self.Theme.accent
             langLabel.TextSize = 11
             langLabel.Font = Enum.Font.GothamBold
             langLabel.TextXAlignment = Enum.TextXAlignment.Left
-            
-            -- 按钮容器
+
             local btnContainer = Instance.new("Frame", codeHeader)
             btnContainer.Size = UDim2.new(0, 180, 1, 0)
             btnContainer.Position = UDim2.new(1, -185, 0, 0)
             btnContainer.BackgroundTransparency = 1
-            
-            -- 复制按钮
+
             local copyBtn = Instance.new("TextButton", btnContainer)
             copyBtn.Name = "CopyBtn"
             copyBtn.Size = UDim2.new(0, 55, 0, 22)
@@ -1223,8 +1292,7 @@ function UI:addMessage(text, isUser, reasoning)
             copyBtn.TextSize = 11
             copyBtn.Font = Enum.Font.Gotham
             createCorner(copyBtn, 4)
-            
-            -- 执行按钮
+
             local execBtn = Instance.new("TextButton", btnContainer)
             execBtn.Name = "ExecBtn"
             execBtn.Size = UDim2.new(0, 55, 0, 22)
@@ -1236,8 +1304,7 @@ function UI:addMessage(text, isUser, reasoning)
             execBtn.TextSize = 11
             execBtn.Font = Enum.Font.GothamBold
             createCorner(execBtn, 4)
-            
-            -- 保存按钮
+
             local saveBtn = Instance.new("TextButton", btnContainer)
             saveBtn.Name = "SaveBtn"
             saveBtn.Size = UDim2.new(0, 55, 0, 22)
@@ -1249,8 +1316,7 @@ function UI:addMessage(text, isUser, reasoning)
             saveBtn.TextSize = 11
             saveBtn.Font = Enum.Font.GothamBold
             createCorner(saveBtn, 4)
-            
-            -- 代码内容
+
             local codeContent = Instance.new("TextLabel", codeFrame)
             codeContent.Name = "Code"
             codeContent.Size = UDim2.new(1, -16, 0, 0)
@@ -1265,9 +1331,7 @@ function UI:addMessage(text, isUser, reasoning)
             codeContent.TextYAlignment = Enum.TextYAlignment.Top
             codeContent.TextWrapped = true
             codeContent.AutomaticSize = Enum.AutomaticSize.Y
-            createCorner(codeContent, 4)
-            
-            -- 存储代码
+
             table.insert(codeBlocks, {
                 frame = codeFrame,
                 code = block.content,
@@ -1275,28 +1339,23 @@ function UI:addMessage(text, isUser, reasoning)
                 execBtn = execBtn,
                 saveBtn = saveBtn
             })
-            
-            -- 按钮事件
+
             copyBtn.MouseButton1Click:Connect(function()
                 if setClipboard(block.content) then
                     copyBtn.Text = "已复制!"
-                    task.delay(1, function()
-                        copyBtn.Text = "复制"
-                    end)
+                    task.delay(1, function() copyBtn.Text = "复制" end)
                 else
                     copyBtn.Text = "失败"
-                    task.delay(1, function()
-                        copyBtn.Text = "复制"
-                    end)
+                    task.delay(1, function() copyBtn.Text = "复制" end)
                 end
             end)
-            
+
             execBtn.MouseButton1Click:Connect(function()
                 if self.messageCallbacks.onExecute then
                     self.messageCallbacks.onExecute(block.content, codeFrame)
                 end
             end)
-            
+
             saveBtn.MouseButton1Click:Connect(function()
                 if self.messageCallbacks.onSave then
                     self.messageCallbacks.onSave(block.content, codeFrame)
