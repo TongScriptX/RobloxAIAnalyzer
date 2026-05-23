@@ -1138,19 +1138,20 @@ function UI:addMessage(text, isUser, reasoning)
     
     local msgFrame = Instance.new("Frame", self.messageArea)
     msgFrame.Size = UDim2.new(1, -12, 0, 0)
+    msgFrame.AutomaticSize = Enum.AutomaticSize.Y
     msgFrame.Position = UDim2.new(0, 6, 0, 0)
     msgFrame.BackgroundColor3 = isUser and self.Theme.accent or self.Theme.backgroundSecondary
     msgFrame.BorderSizePixel = 0
     createCorner(msgFrame, 6)
-    
+
     -- 内容容器
     local container = Instance.new("Frame", msgFrame)
     container.Name = "Container"
     container.Size = UDim2.new(1, -12, 0, 0)
+    container.AutomaticSize = Enum.AutomaticSize.Y
     container.Position = UDim2.new(0, 6, 0, 6)
     container.BackgroundTransparency = 1
-    container.AutomaticSize = Enum.AutomaticSize.Y
-    
+
     local listLayout = Instance.new("UIListLayout", container)
     listLayout.Padding = UDim.new(0, 6)
     
@@ -1303,9 +1304,7 @@ function UI:addMessage(text, isUser, reasoning)
             end)
         end
     end
-    
-    msgFrame.AutomaticSize = Enum.AutomaticSize.Y
-    
+
     -- 自动滚动到底部
     task.wait()
     local listLayout = self.messageArea:FindFirstChild("UIListLayout")

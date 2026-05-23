@@ -501,14 +501,76 @@ end
 
 function App:setupCallbacks()
     local ui = _G.AIAnalyzer.UI
-    
+
     ui:onExecute(function(code, frame)
-        local Config = _G.AIAnalyzer.Config
-        local success, err = execScript(code)
-        if success then
-            self:addSystemMessage("✅ 脚本执行成功")
+        local Tools = _G.AIAnalyzer.Tools
+        local AIClient = _G.AIAnalyzer.AIClient
+
+        -- 使用 Tools:runCode 以便捕获 print/warn 输出
+        local result
+        if Tools and Tools.runCode then
+            result = Tools:runCode(code)
         else
-            self:addSystemMessage("❌ 执行失败: " .. tostring(err))
+            -- 降级：没有 Tools 时直接执行，不捕获输出
+            local fn, compileErr = loadstring(code)
+            if not fn then
+                result = {success = false, error = "编译失败: " .. tostring(compileErr)}
+            else
+                local ok, res = pcall(fn)
+                result = {success = ok, result = ok and tostring(res) or nil, error = not ok and tostring(res) or nil}
+            end
+        end
+
+        -- 构造展示文本
+        local parts = {}
+        if result.success then
+            parts[#parts + 1] = "✅ 脚本执行成功"
+            if result.executionTime then
+                parts[#parts + 1] = string.format("耗时: %.3f秒", result.executionTime)
+            end
+            if result.result then
+                parts[#parts + 1] = "返回值: " .. result.result
+            end
+        else
+            parts[#parts + 1] = "❌ 执行失败: " .. tostring(result.error or result.result)
+            if result.timedOut then
+                parts[#parts + 1] = "💡 提示: 脚本超时，建议分步执行或使用 spawn() 异步"
+            end
+        end
+        if result.output and #result.output > 0 then
+            parts[#parts + 1] = "📋 输出:"
+            for _, line in ipairs(result.output) do
+                parts[#parts + 1] = "  " .. line
+            end
+        end
+        if result.warning then
+            parts[#parts + 1] = result.warning
+        end
+        local resultText = table.concat(parts, "\n")
+        self:addSystemMessage(resultText)
+
+        -- 将执行结果（含输出日志）回传给 AI 继续对话
+        if AIClient then
+            self.isProcessingAI = true
+            ui:showLoading()
+            spawn(function()
+                local feedbackMsg = "用户手动点击执行按钮运行了代码。执行结果:\n" .. resultText
+                local aiResult, err = AIClient:chat(feedbackMsg, nil, {})
+                ui:hideLoading()
+                if aiResult and aiResult.needsConfirmation then
+                    self.pendingConfirmation = true
+                    ui.isConfirming = true
+                    ui:showConfirmationPrompt(aiResult.description, aiResult.code or aiResult.codePreview)
+                elseif aiResult and aiResult.content then
+                    ui:addMessage(aiResult.content, false, aiResult.reasoning)
+                    if aiResult.usage then ui:updateTokenDisplay(aiResult.usage) end
+                    local ctx = _G.AIAnalyzer.ContextManager and _G.AIAnalyzer.ContextManager.getInstance()
+                    if ctx then ui:updateContextStatus(ctx:getStatus()) end
+                elseif err then
+                    ui:addMessage("⚠️ AI响应失败: " .. tostring(err), false)
+                end
+                self.isProcessingAI = false
+            end)
         end
     end)
     
