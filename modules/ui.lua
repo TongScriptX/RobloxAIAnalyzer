@@ -1150,20 +1150,19 @@ end
 -- 添加消息气泡（支持Markdown和思考过程）
 function UI:addMessage(text, isUser, reasoning)
     local blocks = parseMarkdown(text)
-    
+
     local msgFrame = Instance.new("Frame", self.messageArea)
     msgFrame.Size = UDim2.new(1, -12, 0, 0)
-    msgFrame.AutomaticSize = Enum.AutomaticSize.Y
     msgFrame.Position = UDim2.new(0, 6, 0, 0)
     msgFrame.BackgroundColor3 = isUser and self.Theme.accent or self.Theme.backgroundSecondary
     msgFrame.BorderSizePixel = 0
     createCorner(msgFrame, 6)
 
-    -- 内容容器
+    -- 内容容器：先不设 AutomaticSize，等子元素全部加入后再开启，
+    -- 避免 Roblox 在同帧 AbsoluteSize.X=0 时让 TextLabel 竖排
     local container = Instance.new("Frame", msgFrame)
     container.Name = "Container"
     container.Size = UDim2.new(1, -12, 0, 0)
-    container.AutomaticSize = Enum.AutomaticSize.Y
     container.Position = UDim2.new(0, 6, 0, 6)
     container.BackgroundTransparency = 1
 
@@ -1363,6 +1362,12 @@ function UI:addMessage(text, isUser, reasoning)
             end)
         end
     end
+
+    -- 等一帧让 Roblox 布局引擎先按正确宽度渲染所有 TextLabel，
+    -- 之后再开 AutomaticSize，避免 AbsoluteSize.X=0 时文字竖排
+    task.wait()
+    container.AutomaticSize = Enum.AutomaticSize.Y
+    msgFrame.AutomaticSize = Enum.AutomaticSize.Y
 
     -- 自动滚动到底部
     task.wait()

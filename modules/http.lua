@@ -181,12 +181,42 @@ function Http:post(url, body, headers)
     })
 end
 
+-- 递归净化 table，把所有不可 JSON 序列化的值转为 string，防止 JSONEncode 报错
+local function sanitizeForJSON(v, depth)
+    depth = depth or 0
+    if depth > 20 then return "[too deep]" end
+    local t = type(v)
+    if t == "string" then
+        return v
+    elseif t == "number" then
+        -- JSONEncode 不支持 NaN / infinity
+        if v ~= v or v == math.huge or v == -math.huge then
+            return tostring(v)
+        end
+        return v
+    elseif t == "boolean" then
+        return v
+    elseif t == "nil" then
+        return nil
+    elseif t == "table" then
+        local clean = {}
+        for k, val in pairs(v) do
+            local ck = type(k) == "string" and k or tostring(k)
+            clean[ck] = sanitizeForJSON(val, depth + 1)
+        end
+        return clean
+    else
+        -- function, userdata (Instance, Vector3 等), thread
+        return tostring(v)
+    end
+end
+
 -- JSON请求（专为AI API设计）
 function Http:jsonRequest(url, method, data, headers)
     local bodyData = ""
     if data then
         local ok, encoded = pcall(function()
-            return game:GetService("HttpService"):JSONEncode(data)
+            return game:GetService("HttpService"):JSONEncode(sanitizeForJSON(data))
         end)
         if not ok then
             warn("[HTTP] JSONEncode failed: " .. tostring(encoded))
