@@ -144,7 +144,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
         ctx:addUserMessage(userMessage)
         -- 获取包含历史的消息列表
         messages = ctx:getMessagesForAPI(systemPrompt, {
-            includeReasoningContent = options.includeReasoningContent == true and not isDeepSeek
+            includeReasoningContent = isDeepSeek
         })
     else
         -- 无上下文管理，单次对话
@@ -216,6 +216,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
         -- 添加助手消息到历史
         if ctx then
             local extra = { tool_calls = assistantMessage.tool_calls }
+            if isDeepSeek and assistantMessage.reasoning_content ~= nil then
+                extra.reasoning_content = assistantMessage.reasoning_content
+            end
             ctx:addMessage("assistant", assistantMessage.content or "", extra)
         else
             table.insert(messages, assistantMessage)
@@ -371,7 +374,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
         local followUpMessages
         if ctx then
             followUpMessages = ctx:getMessagesForAPI(systemPrompt, {
-                includeReasoningContent = options.includeReasoningContent == true and not isDeepSeek
+                includeReasoningContent = isDeepSeek
             })
         else
             followUpMessages = messages
@@ -442,7 +445,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
         local finalMessages
         if ctx then
             finalMessages = ctx:getMessagesForAPI(systemPrompt, {
-                includeReasoningContent = options.includeReasoningContent == true and not isDeepSeek
+                includeReasoningContent = isDeepSeek
             })
         else
             finalMessages = messages
@@ -507,7 +510,11 @@ function AIClient:chat(userMessage, systemPrompt, options)
     
     -- 添加助手回复到历史
     if ctx then
-        ctx:addAssistantMessage(content)
+        local extra = nil
+        if isDeepSeek and assistantMessage.reasoning_content ~= nil then
+            extra = { reasoning_content = assistantMessage.reasoning_content }
+        end
+        ctx:addMessage("assistant", content, extra)
     end
     
     -- 检查是否被截断
