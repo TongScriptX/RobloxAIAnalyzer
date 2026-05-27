@@ -341,7 +341,8 @@ function ContextManager:clear()
 end
 
 -- 净化单条消息，只保留 API 需要的字段，防止 JSONEncode 失败
-local function sanitizeMessage(msg)
+local function sanitizeMessage(msg, options)
+    options = options or {}
     local clean = {
         role = tostring(msg.role or ""),
         content = msg.content ~= nil and tostring(msg.content) or nil,
@@ -364,15 +365,15 @@ local function sanitizeMessage(msg)
             table.insert(clean.tool_calls, cleanTc)
         end
     end
-    -- DeepSeek 思考模式：reasoning_content 必须原样传回
-    if msg.reasoning_content ~= nil then
+    -- 仅在明确允许时回传 reasoning_content，避免兼容接口返回 400
+    if options.includeReasoningContent and msg.reasoning_content ~= nil then
         clean.reasoning_content = tostring(msg.reasoning_content)
     end
     return clean
 end
 
 -- 获取用于API的消息列表
-function ContextManager:getMessagesForAPI(systemPrompt)
+function ContextManager:getMessagesForAPI(systemPrompt, options)
     local result = {}
 
     -- 系统提示
@@ -393,7 +394,7 @@ function ContextManager:getMessagesForAPI(systemPrompt)
 
     -- 添加对话历史（净化后再加入，防止 JSONEncode 失败）
     for _, msg in ipairs(self.messages) do
-        table.insert(result, sanitizeMessage(msg))
+        table.insert(result, sanitizeMessage(msg, options))
     end
 
     return result

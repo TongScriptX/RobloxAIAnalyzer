@@ -47,6 +47,16 @@ local function buildRequestUrl(provider)
     return baseUrl .. endpoint
 end
 
+local function isDeepSeekProvider(provider)
+    local baseUrl = trim(provider and provider.baseUrl or ""):lower()
+    local model = trim(provider and provider.defaultModel or ""):lower()
+    local name = trim(provider and provider.name or ""):lower()
+
+    return baseUrl:find("deepseek", 1, true) ~= nil
+        or model:find("deepseek", 1, true) ~= nil
+        or name:find("deepseek", 1, true) ~= nil
+end
+
 local function formatRequestError(response)
     if not response then
         return "Request failed: no response"
@@ -119,6 +129,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
     
     -- 获取或初始化上下文管理器
     local ctx = ContextManager and ContextManager.getInstance()
+    local isDeepSeek = isDeepSeekProvider(provider)
     
     -- 设置当前模型（用于上下文限制，优先使用 provider 配置的 contextWindow）
     if ctx then
@@ -132,7 +143,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
         -- 添加用户消息到历史
         ctx:addUserMessage(userMessage)
         -- 获取包含历史的消息列表
-        messages = ctx:getMessagesForAPI(systemPrompt)
+        messages = ctx:getMessagesForAPI(systemPrompt, {
+            includeReasoningContent = options.includeReasoningContent == true and not isDeepSeek
+        })
     else
         -- 无上下文管理，单次对话
         messages = {}
@@ -200,12 +213,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
     while assistantMessage.tool_calls and #assistantMessage.tool_calls > 0 and iteration < maxIterations do
         iteration = iteration + 1
 
-        -- 添加助手消息到历史（保留 reasoning_content，DeepSeek 思考模式要求原样传回）
+        -- 添加助手消息到历史
         if ctx then
             local extra = { tool_calls = assistantMessage.tool_calls }
-            if assistantMessage.reasoning_content then
-                extra.reasoning_content = assistantMessage.reasoning_content
-            end
             ctx:addMessage("assistant", assistantMessage.content or "", extra)
         else
             table.insert(messages, assistantMessage)
@@ -360,7 +370,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
         -- 再次请求AI处理工具结果
         local followUpMessages
         if ctx then
-            followUpMessages = ctx:getMessagesForAPI(systemPrompt)
+            followUpMessages = ctx:getMessagesForAPI(systemPrompt, {
+                includeReasoningContent = options.includeReasoningContent == true and not isDeepSeek
+            })
         else
             followUpMessages = messages
         end
@@ -429,7 +441,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
         
         local finalMessages
         if ctx then
-            finalMessages = ctx:getMessagesForAPI(systemPrompt)
+            finalMessages = ctx:getMessagesForAPI(systemPrompt, {
+                includeReasoningContent = options.includeReasoningContent == true and not isDeepSeek
+            })
         else
             finalMessages = messages
         end
@@ -776,24 +790,42 @@ end
 
 -- 测试API连接
 function AIClient:testConnection()
-    local Config = getDeps()
+    local Config, Http = getDeps()
     local provider = Config and Config:getCurrentProvider()
     
     if not provider or not provider.apiKey or provider.apiKey == "" then
         return false, "API Key not configured"
     end
-    
-    local result, err = self:chat("Hello, respond with 'OK' to confirm connection.", nil, {
-        includeTools = false,
-        maxTokens = 32,
-        temperature = 0
-    })
-    
-    if result then
-        return true, "Connection successful to " .. provider.name
-    else
-        return false, "Connection failed: " .. tostring(err)
+
+    if not Http or not Http:canRequestExternal() then
+        return false, "External HTTP requests not supported"
     end
+
+    local url = buildRequestUrl(provider)
+    local headers = createHeaders(provider)
+    local body = {
+        model = provider.defaultModel,
+        messages = {
+            {
+                role = "user",
+                content = "Reply with OK."
+            }
+        },
+        max_tokens = 16,
+        temperature = 0,
+        stream = false
+    }
+
+    local response = Http:jsonRequest(url, "POST", body, headers)
+    if not response.success then
+        return false, "Connection failed: " .. formatRequestError(response)
+    end
+
+    if not response.data or not response.data.choices or not response.data.choices[1] then
+        return false, "Connection failed: invalid response payload"
+    end
+
+    return true, "Connection successful to " .. provider.name
 end
 
 return AIClient

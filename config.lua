@@ -9,6 +9,17 @@ end
 
 -- AI providers
 Config.Providers = {
+    DeepSeek = {
+        name = "DeepSeek",
+        baseUrl = "https://api.deepseek.com",
+        endpoint = "/chat/completions",
+        models = {"deepseek-chat", "deepseek-reasoner"},
+        defaultModel = "deepseek-chat",
+        contextWindow = 64000,
+        outputLimit = 8192,
+        apiKey = "",
+        supportsFunctionCall = true
+    },
     Custom = {
         name = "Custom",
         baseUrl = "",
