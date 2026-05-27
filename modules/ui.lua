@@ -701,17 +701,278 @@ end
 
 -- 创建session列表区域（已禁用）
 function UI:createSessionList()
-    -- 不再显示 session 列表
+    return self:createSessionView()
 end
 
 -- 刷新session列表（已禁用）
 function UI:refreshSessionList(sessions, onSwitch, onDelete, currentId)
-    -- 不再需要
+    if not self.sessionList then
+        return
+    end
+
+    for _, child in ipairs(self.sessionList:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+
+    if not sessions or #sessions == 0 then
+        local empty = Instance.new("TextLabel", self.sessionList)
+        empty.Size = UDim2.new(1, -12, 0, 48)
+        empty.Position = UDim2.new(0, 6, 0, 6)
+        empty.BackgroundTransparency = 1
+        empty.Text = "暂无历史会话"
+        empty.TextColor3 = self.Theme.textSecondary
+        empty.TextSize = 12
+        empty.Font = Enum.Font.Gotham
+        empty.TextWrapped = true
+        return
+    end
+
+    local y = 6
+    for _, session in ipairs(sessions) do
+        local item = self:addSessionItem(session, function()
+            if onSwitch then
+                onSwitch(session)
+            end
+        end, onDelete and function()
+            onDelete(session)
+        end or nil, session.id == currentId)
+        item.Position = UDim2.new(0, 6, 0, y)
+        item.Parent = self.sessionList
+        y = y + item.Size.Y.Offset + 8
+    end
+
+    self.sessionList.CanvasSize = UDim2.new(0, 0, 0, y)
 end
 
 -- 添加session项（已禁用）
-function UI:addSessionItem(session, onClick, onDelete)
-    -- 不再需要
+function UI:addSessionItem(session, onClick, onDelete, isCurrent)
+    local frame = Instance.new("Frame")
+    frame.Name = "SessionItem"
+    frame.Size = UDim2.new(1, -12, 0, 82)
+    frame.BackgroundColor3 = isCurrent and self.Theme.accent or self.Theme.backgroundTertiary
+    frame.BorderSizePixel = 0
+    createCorner(frame, 6)
+
+    local switchBtn = Instance.new("TextButton", frame)
+    switchBtn.Size = UDim2.new(1, onDelete and -40 or -12, 1, -12)
+    switchBtn.Position = UDim2.new(0, 6, 0, 6)
+    switchBtn.BackgroundTransparency = 1
+    switchBtn.Text = ""
+
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, onDelete and -56 or -18, 0, 20)
+    title.Position = UDim2.new(0, 10, 0, 8)
+    title.BackgroundTransparency = 1
+    title.Text = (isCurrent and "● " or "") .. (session.title or "未命名会话")
+    title.TextColor3 = self.Theme.text
+    title.TextSize = 12
+    title.Font = isCurrent and Enum.Font.GothamBold or Enum.Font.Gotham
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local sessionId = Instance.new("TextLabel", frame)
+    sessionId.Size = UDim2.new(1, onDelete and -56 or -18, 0, 14)
+    sessionId.Position = UDim2.new(0, 10, 0, 30)
+    sessionId.BackgroundTransparency = 1
+    sessionId.Text = session.id or ""
+    sessionId.TextColor3 = isCurrent and Color3.fromRGB(230, 240, 255) or self.Theme.textMuted
+    sessionId.TextSize = 10
+    sessionId.Font = Enum.Font.Code
+    sessionId.TextXAlignment = Enum.TextXAlignment.Left
+    sessionId.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local updated = Instance.new("TextLabel", frame)
+    updated.Size = UDim2.new(1, onDelete and -56 or -18, 0, 14)
+    updated.Position = UDim2.new(0, 10, 0, 48)
+    updated.BackgroundTransparency = 1
+    updated.Text = "更新: " .. tostring(session.updatedAt or session.createdAt or "")
+    updated.TextColor3 = isCurrent and Color3.fromRGB(230, 240, 255) or self.Theme.textSecondary
+    updated.TextSize = 10
+    updated.Font = Enum.Font.Gotham
+    updated.TextXAlignment = Enum.TextXAlignment.Left
+    updated.TextTruncate = Enum.TextTruncate.AtEnd
+
+    if onDelete then
+        local deleteBtn = Instance.new("TextButton", frame)
+        deleteBtn.Size = UDim2.new(0, 28, 0, 28)
+        deleteBtn.Position = UDim2.new(1, -34, 0, 8)
+        deleteBtn.BackgroundColor3 = self.Theme.error
+        deleteBtn.BorderSizePixel = 0
+        deleteBtn.Text = "×"
+        deleteBtn.TextColor3 = Color3.new(1, 1, 1)
+        deleteBtn.TextSize = 16
+        deleteBtn.Font = Enum.Font.GothamBold
+        createCorner(deleteBtn, 4)
+        deleteBtn.MouseButton1Click:Connect(function()
+            onDelete()
+        end)
+    end
+
+    switchBtn.MouseButton1Click:Connect(function()
+        onClick()
+    end)
+
+    return frame
+end
+
+function UI:createSessionView()
+    local sessionFrame = Instance.new("Frame", self.mainContent)
+    sessionFrame.Name = "SessionView"
+    sessionFrame.Size = UDim2.new(1, 0, 1, 0)
+    sessionFrame.BackgroundTransparency = 1
+
+    local header = Instance.new("Frame", sessionFrame)
+    header.Size = UDim2.new(1, -16, 0, 34)
+    header.Position = UDim2.new(0, 8, 0, 8)
+    header.BackgroundTransparency = 1
+
+    local title = Instance.new("TextLabel", header)
+    title.Size = UDim2.new(0.6, 0, 1, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "历史会话"
+    title.TextColor3 = self.Theme.text
+    title.TextSize = 14
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local newBtn = Instance.new("TextButton", header)
+    newBtn.Name = "NewSessionBtn"
+    newBtn.Size = UDim2.new(0, 84, 0, 28)
+    newBtn.Position = UDim2.new(1, -84, 0.5, -14)
+    newBtn.BackgroundColor3 = self.Theme.success
+    newBtn.BorderSizePixel = 0
+    newBtn.Text = "+ 新会话"
+    newBtn.TextColor3 = Color3.new(1, 1, 1)
+    newBtn.TextSize = 11
+    newBtn.Font = Enum.Font.GothamBold
+    createCorner(newBtn, 6)
+
+    local sessionList = Instance.new("ScrollingFrame", sessionFrame)
+    sessionList.Name = "SessionList"
+    sessionList.Size = UDim2.new(0.42, -12, 1, -56)
+    sessionList.Position = UDim2.new(0, 8, 0, 48)
+    sessionList.BackgroundColor3 = self.Theme.backgroundTertiary
+    sessionList.BorderSizePixel = 0
+    sessionList.ScrollBarThickness = 5
+    sessionList.ScrollBarImageColor3 = self.Theme.accent
+    sessionList.CanvasSize = UDim2.new(0, 0, 0, 0)
+    createCorner(sessionList, 8)
+
+    local preview = Instance.new("ScrollingFrame", sessionFrame)
+    preview.Name = "SessionPreview"
+    preview.Size = UDim2.new(0.58, -12, 1, -56)
+    preview.Position = UDim2.new(0.42, 4, 0, 48)
+    preview.BackgroundColor3 = self.Theme.backgroundTertiary
+    preview.BorderSizePixel = 0
+    preview.ScrollBarThickness = 5
+    preview.ScrollBarImageColor3 = self.Theme.accent
+    preview.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    preview.CanvasSize = UDim2.new(0, 0, 0, 0)
+    createCorner(preview, 8)
+
+    local previewLayout = Instance.new("UIListLayout", preview)
+    previewLayout.Padding = UDim.new(0, 6)
+
+    local previewPadding = Instance.new("UIPadding", preview)
+    previewPadding.PaddingTop = UDim.new(0, 8)
+    previewPadding.PaddingBottom = UDim.new(0, 8)
+    previewPadding.PaddingLeft = UDim.new(0, 8)
+    previewPadding.PaddingRight = UDim.new(0, 8)
+
+    self.sessionView = sessionFrame
+    self.sessionList = sessionList
+    self.sessionPreview = preview
+    self.newSessionBtn = newBtn
+
+    return sessionFrame
+end
+
+function UI:setSessionPreview(session, messages)
+    if not self.sessionPreview then
+        return
+    end
+
+    for _, child in ipairs(self.sessionPreview:GetChildren()) do
+        if child:IsA("Frame") or child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+
+    local header = Instance.new("TextLabel", self.sessionPreview)
+    header.Size = UDim2.new(1, 0, 0, 18)
+    header.BackgroundTransparency = 1
+    header.Text = (session and session.title) or "会话预览"
+    header.TextColor3 = self.Theme.text
+    header.TextSize = 13
+    header.Font = Enum.Font.GothamBold
+    header.TextXAlignment = Enum.TextXAlignment.Left
+
+    local meta = Instance.new("TextLabel", self.sessionPreview)
+    meta.Size = UDim2.new(1, 0, 0, 14)
+    meta.BackgroundTransparency = 1
+    meta.Text = session and string.format("%s | %d 条消息", tostring(session.updatedAt or session.createdAt or ""), #(messages or {})) or "未选择会话"
+    meta.TextColor3 = self.Theme.textSecondary
+    meta.TextSize = 10
+    meta.Font = Enum.Font.Gotham
+    meta.TextXAlignment = Enum.TextXAlignment.Left
+
+    if not messages or #messages == 0 then
+        local empty = Instance.new("TextLabel", self.sessionPreview)
+        empty.Size = UDim2.new(1, 0, 0, 24)
+        empty.BackgroundTransparency = 1
+        empty.Text = "该会话暂无可显示消息"
+        empty.TextColor3 = self.Theme.textMuted
+        empty.TextSize = 11
+        empty.Font = Enum.Font.Gotham
+        empty.TextWrapped = true
+        return
+    end
+
+    for i, msg in ipairs(messages) do
+        if i > 24 then
+            local truncated = Instance.new("TextLabel", self.sessionPreview)
+            truncated.Size = UDim2.new(1, 0, 0, 16)
+            truncated.BackgroundTransparency = 1
+            truncated.Text = "仅显示最近 24 条消息预览"
+            truncated.TextColor3 = self.Theme.textMuted
+            truncated.TextSize = 10
+            truncated.Font = Enum.Font.Gotham
+            truncated.TextXAlignment = Enum.TextXAlignment.Left
+            break
+        end
+
+        local bubble = Instance.new("Frame", self.sessionPreview)
+        bubble.Size = UDim2.new(1, 0, 0, 0)
+        bubble.BackgroundColor3 = msg.role == "user" and self.Theme.accent or self.Theme.backgroundSecondary
+        bubble.BorderSizePixel = 0
+        bubble.AutomaticSize = Enum.AutomaticSize.Y
+        createCorner(bubble, 6)
+
+        local role = Instance.new("TextLabel", bubble)
+        role.Size = UDim2.new(1, -12, 0, 16)
+        role.Position = UDim2.new(0, 6, 0, 6)
+        role.BackgroundTransparency = 1
+        role.Text = msg.role == "user" and "用户" or (msg.role == "assistant" and "AI" or msg.role)
+        role.TextColor3 = Color3.new(1, 1, 1)
+        role.TextSize = 10
+        role.Font = Enum.Font.GothamBold
+        role.TextXAlignment = Enum.TextXAlignment.Left
+
+        local body = Instance.new("TextLabel", bubble)
+        body.Size = UDim2.new(1, -12, 0, 0)
+        body.Position = UDim2.new(0, 6, 0, 24)
+        body.BackgroundTransparency = 1
+        body.Text = tostring(msg.content or ""):sub(1, 400)
+        body.TextColor3 = Color3.new(1, 1, 1)
+        body.TextSize = 11
+        body.Font = Enum.Font.Gotham
+        body.TextWrapped = true
+        body.TextXAlignment = Enum.TextXAlignment.Left
+        body.TextYAlignment = Enum.TextYAlignment.Top
+        body.AutomaticSize = Enum.AutomaticSize.Y
+    end
 end
 
 -- 创建聊天界面
@@ -3690,6 +3951,7 @@ function UI:showView(viewName)
     if self.chatView then self.chatView.Visible = false end
     if self.settingsView then self.settingsView.Visible = false end
     if self.resourceView then self.resourceView.Visible = false end
+    if self.sessionView then self.sessionView.Visible = false end
     
     if viewName == "chat" and self.chatView then
         self.chatView.Visible = true
@@ -3697,7 +3959,11 @@ function UI:showView(viewName)
         self.settingsView.Visible = true
     elseif viewName == "resources" and self.resourceView then
         self.resourceView.Visible = true
+    elseif viewName == "sessions" and self.sessionView then
+        self.sessionView.Visible = true
     end
+
+    self.currentView = viewName
 end
 
 -- 清空消息

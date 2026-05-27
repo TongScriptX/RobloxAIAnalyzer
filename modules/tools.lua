@@ -132,6 +132,27 @@ Tools.definitions = {
     {
         type = "function",
         ["function"] = {
+            name = "list_remotes",
+            description = "列出扫描到的 RemoteEvent / RemoteFunction，支持按名称过滤。",
+            parameters = {
+                type = "object",
+                properties = {
+                    query = {
+                        type = "string",
+                        description = "可选：按名称或路径过滤"
+                    },
+                    limit = {
+                        type = "integer",
+                        description = "返回数量限制，默认30"
+                    }
+                },
+                required = {}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
             name = "get_remote_info",
             description = "获取RemoteEvent或RemoteFunction的详细信息，包括路径、参数结构等。",
             parameters = {
@@ -143,6 +164,71 @@ Tools.definitions = {
                     }
                 },
                 required = {"name"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "analyze_remote_usage",
+            description = "分析指定 Remote 在脚本中的使用情况，返回引用该 Remote 的脚本、调用方式和上下文。",
+            parameters = {
+                type = "object",
+                properties = {
+                    name = {
+                        type = "string",
+                        description = "Remote 名称或路径"
+                    },
+                    context_lines = {
+                        type = "integer",
+                        description = "上下文行数，默认2"
+                    }
+                },
+                required = {"name"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "call_remote",
+            description = "直接调用指定 Remote。支持 RemoteEvent 的 FireServer 和 RemoteFunction 的 InvokeServer。arguments_json 传 JSON 数组，如 [1,\"abc\",true]。",
+            parameters = {
+                type = "object",
+                properties = {
+                    name = {
+                        type = "string",
+                        description = "Remote 名称或路径"
+                    },
+                    arguments_json = {
+                        type = "string",
+                        description = "JSON 数组形式参数，例如 [123,\"test\"]"
+                    },
+                    mode = {
+                        type = "string",
+                        enum = {"auto", "fire", "invoke"},
+                        description = "调用方式，默认 auto"
+                    }
+                },
+                required = {"name"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "remote_interceptor",
+            description = "管理 Remote 调用拦截/监听。当前支持 status/start/stop/flush，用于记录客户端发出的 FireServer/InvokeServer 调用。",
+            parameters = {
+                type = "object",
+                properties = {
+                    action = {
+                        type = "string",
+                        enum = {"status", "start", "stop", "flush"},
+                        description = "操作类型"
+                    }
+                },
+                required = {"action"}
             }
         }
     },
@@ -249,6 +335,13 @@ Tools.definitions = {
 
 -- 运行模式：smart(智能), default(默认询问), yolo(从不询问)
 Tools.runMode = "default"
+Tools.remoteInterceptor = {
+    active = false,
+    installed = false,
+    hooks = {},
+    logs = {},
+    maxLogs = 100
+}
 
 -- 高风险关键词（用于智能模式判断）
 local HIGH_RISK_PATTERNS = {
@@ -492,6 +585,9 @@ function Tools:execute(toolName, args, context)
     elseif toolName == "save_script" then
         return self:saveScriptToFile(args, Reader, Scanner, Executor)
 
+    elseif toolName == "list_remotes" then
+        return self:listRemotes(args, Scanner)
+
     elseif toolName == "get_remote_info" then
         local nameKey = (args.name or ""):lower()
         if self.resourceCache.remotes[nameKey] then
@@ -508,6 +604,12 @@ function Tools:execute(toolName, args, context)
         end
         return result
 
+    elseif toolName == "analyze_remote_usage" then
+        return self:analyzeRemoteUsage(args, Reader, Scanner)
+    elseif toolName == "call_remote" then
+        return self:callRemote(args, Scanner)
+    elseif toolName == "remote_interceptor" then
+        return self:remoteInterceptorAction(args)
     elseif toolName == "list_resources" then
         return self:listResources(args, Scanner)
     elseif toolName == "search_in_script" then
@@ -561,6 +663,38 @@ function Tools:searchResources(args, Scanner)
     return {
         query = query,
         count = #results,
+        results = results
+    }
+end
+
+function Tools:listRemotes(args, Scanner)
+    if not Scanner or not Scanner.cache then
+        return {error = "Scanner not initialized"}
+    end
+
+    local query = (args.query or ""):lower()
+    local limit = math.max(1, math.min(tonumber(args.limit) or 30, 100))
+    local results = {}
+
+    for _, remote in ipairs(Scanner.cache.remotes or {}) do
+        local path = (remote.path or ""):lower()
+        local name = (remote.name or ""):lower()
+        if query == "" or name:find(query, 1, true) or path:find(query, 1, true) then
+            table.insert(results, {
+                name = remote.name,
+                type = remote.className,
+                path = remote.path
+            })
+            if #results >= limit then
+                break
+            end
+        end
+    end
+
+    return {
+        query = args.query or "",
+        count = #results,
+        total = #(Scanner.cache.remotes or {}),
         results = results
     }
 end
@@ -805,6 +939,257 @@ function Tools:getRemoteInfo(args, Scanner)
     end
     
     return {error = "Remote not found: " .. name}
+end
+
+local function findRemoteInstance(Scanner, name)
+    if not Scanner or not Scanner.cache or not name then
+        return nil
+    end
+
+    local nameLower = name:lower()
+    local bestMatch, bestScore
+
+    for _, remote in ipairs(Scanner.cache.remotes or {}) do
+        local score = 0
+        local remoteName = (remote.name or ""):lower()
+        local remotePath = (remote.path or ""):lower()
+        if remotePath == nameLower then
+            score = 200
+        elseif remoteName == nameLower then
+            score = 150
+        elseif remotePath:find(nameLower, 1, true) then
+            score = 80
+        elseif remoteName:find(nameLower, 1, true) then
+            score = 50
+        end
+
+        if score > 0 and (not bestScore or score > bestScore) then
+            bestMatch = remote
+            bestScore = score
+        end
+    end
+
+    return bestMatch
+end
+
+function Tools:analyzeRemoteUsage(args, Reader, Scanner)
+    local name = args.name
+    if not name or name == "" then
+        return {error = "Remote name required"}
+    end
+    if not Reader or not Reader:canDecompile() then
+        return {error = "Script reading not available"}
+    end
+
+    local remote = findRemoteInstance(Scanner, name)
+    if not remote then
+        return {error = "Remote not found: " .. tostring(name)}
+    end
+
+    local usageByName = self:searchInScript({
+        text = remote.name,
+        context_lines = args.context_lines or 2
+    }, Reader, Scanner)
+
+    if usageByName.error then
+        return usageByName
+    end
+
+    return {
+        remote = {
+            name = remote.name,
+            type = remote.className,
+            path = remote.path
+        },
+        scriptCount = usageByName.scriptCount or 0,
+        totalMatches = usageByName.totalMatches or 0,
+        scriptsSearched = usageByName.scriptsSearched or 0,
+        results = usageByName.results or {}
+    }
+end
+
+local function decodeArgumentValue(value)
+    if type(value) ~= "table" then
+        return value
+    end
+
+    if value.__type == "Vector3" then
+        return Vector3.new(tonumber(value.x) or 0, tonumber(value.y) or 0, tonumber(value.z) or 0)
+    elseif value.__type == "CFrame" then
+        return CFrame.new(unpack(value.components or {}))
+    elseif value.__type == "Color3" then
+        return Color3.new(tonumber(value.r) or 0, tonumber(value.g) or 0, tonumber(value.b) or 0)
+    elseif value.__type == "Instance" and value.path then
+        local current = game
+        for part in tostring(value.path):gmatch("[^%.]+") do
+            if part ~= "game" then
+                current = current and current:FindFirstChild(part)
+            end
+        end
+        return current
+    end
+
+    local out = {}
+    for k, v in pairs(value) do
+        out[k] = decodeArgumentValue(v)
+    end
+    return out
+end
+
+local function decodeRemoteArguments(raw)
+    if not raw or raw == "" then
+        return {}
+    end
+
+    local HttpService = game:GetService("HttpService")
+    local ok, decoded = pcall(function()
+        return HttpService:JSONDecode(raw)
+    end)
+    if not ok then
+        return nil, "arguments_json 不是有效 JSON: " .. tostring(decoded)
+    end
+    if type(decoded) ~= "table" then
+        return nil, "arguments_json 必须是 JSON 数组"
+    end
+
+    local args = {}
+    for i, value in ipairs(decoded) do
+        args[i] = decodeArgumentValue(value)
+    end
+    return args
+end
+
+function Tools:callRemote(args, Scanner)
+    local name = args.name
+    if not name or name == "" then
+        return {error = "Remote name required"}
+    end
+
+    local remoteInfo = findRemoteInstance(Scanner, name)
+    if not remoteInfo or not remoteInfo.instance then
+        return {error = "Remote not found: " .. tostring(name)}
+    end
+
+    local decodedArgs, decodeErr = decodeRemoteArguments(args.arguments_json)
+    if not decodedArgs then
+        return {error = decodeErr}
+    end
+
+    local mode = args.mode or "auto"
+    local remote = remoteInfo.instance
+    local remoteClass = remoteInfo.className
+    local resultValue
+
+    if mode == "auto" then
+        mode = remoteClass == "RemoteFunction" and "invoke" or "fire"
+    end
+
+    local ok, callErr = pcall(function()
+        if mode == "invoke" then
+            resultValue = remote:InvokeServer(unpack(decodedArgs))
+        elseif mode == "fire" then
+            remote:FireServer(unpack(decodedArgs))
+        else
+            error("Unsupported mode: " .. tostring(mode))
+        end
+    end)
+
+    if not ok then
+        return {error = "Remote call failed: " .. tostring(callErr)}
+    end
+
+    return {
+        success = true,
+        remote = remoteInfo.name,
+        type = remoteClass,
+        path = remoteInfo.path,
+        mode = mode,
+        argumentCount = #decodedArgs,
+        result = resultValue ~= nil and tostring(resultValue) or nil
+    }
+end
+
+local function ensureRemoteInterceptor(self)
+    if self.remoteInterceptor.installed then
+        return true
+    end
+
+    if not hookmetamethod or not getnamecallmethod or not newcclosure then
+        return false, "当前执行器不支持 Remote 拦截所需的 hookmetamethod/getnamecallmethod/newcclosure"
+    end
+
+    local original
+    original = hookmetamethod(game, "__namecall", newcclosure(function(target, ...)
+        local method = getnamecallmethod()
+        if self.remoteInterceptor.active
+            and typeof(target) == "Instance"
+            and (method == "FireServer" or method == "InvokeServer")
+            and (target:IsA("RemoteEvent") or target:IsA("RemoteFunction")) then
+            local entry = {
+                time = os.date("%H:%M:%S"),
+                method = method,
+                name = target.Name,
+                className = target.ClassName,
+                path = target:GetFullName(),
+                argumentCount = select("#", ...),
+                arguments = {}
+            }
+            for i = 1, math.min(select("#", ...), 6) do
+                entry.arguments[i] = tostring(select(i, ...))
+            end
+            table.insert(self.remoteInterceptor.logs, 1, entry)
+            while #self.remoteInterceptor.logs > self.remoteInterceptor.maxLogs do
+                table.remove(self.remoteInterceptor.logs)
+            end
+        end
+        return original(target, ...)
+    end))
+
+    self.remoteInterceptor.installed = true
+    self.remoteInterceptor.hooks.namecall = original
+    return true
+end
+
+function Tools:remoteInterceptorAction(args)
+    local action = args.action
+    if action == "status" then
+        return {
+            active = self.remoteInterceptor.active,
+            installed = self.remoteInterceptor.installed,
+            logCount = #self.remoteInterceptor.logs,
+            logs = self.remoteInterceptor.logs
+        }
+    elseif action == "flush" then
+        self.remoteInterceptor.logs = {}
+        return {
+            success = true,
+            active = self.remoteInterceptor.active,
+            installed = self.remoteInterceptor.installed,
+            logCount = 0
+        }
+    elseif action == "start" then
+        local ok, err = ensureRemoteInterceptor(self)
+        if not ok then
+            return {error = err}
+        end
+        self.remoteInterceptor.active = true
+        return {
+            success = true,
+            active = true,
+            installed = true,
+            logCount = #self.remoteInterceptor.logs
+        }
+    elseif action == "stop" then
+        self.remoteInterceptor.active = false
+        return {
+            success = true,
+            active = false,
+            installed = self.remoteInterceptor.installed,
+            logCount = #self.remoteInterceptor.logs
+        }
+    end
+
+    return {error = "Unsupported action: " .. tostring(action)}
 end
 
 -- 列出资源

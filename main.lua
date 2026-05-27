@@ -329,6 +329,7 @@ end
 
 function App:saveCurrentSession()
     local SessionManager = _G.AIAnalyzer.SessionManager
+    local AIClient = _G.AIAnalyzer.AIClient
     if not SessionManager or not SessionManager.canPersist or not SessionManager:canPersist() then
         return false
     end
@@ -348,7 +349,18 @@ function App:saveCurrentSession()
     session.totalTokens = snapshot.totalTokens
     session.maxTokens = snapshot.maxTokens
     session.modelName = snapshot.modelName
-    session.title = SessionManager:makeSessionTitle(session.messages)
+    if not session.title or session.title == "" or session.title == "新会话" then
+        local aiTitle
+        if AIClient and AIClient.generateSessionTitle then
+            local ok, generated = pcall(function()
+                return AIClient:generateSessionTitle(session.messages)
+            end)
+            if ok and generated and generated ~= "" then
+                aiTitle = generated
+            end
+        end
+        session.title = aiTitle or SessionManager:makeSessionTitle(session.messages)
+    end
     SessionManager:saveSession(session)
     return true
 end
@@ -379,6 +391,178 @@ function App:restoreLastSession()
     if created then
         self.currentSessionId = created.id
     end
+end
+
+function App:getRenderableSessionMessages(session)
+    local messages = {}
+    local raw = session and session.messages or {}
+    local startIndex = math.max(1, #raw - 23)
+
+    for i = startIndex, #raw do
+        local msg = raw[i]
+        if msg and (msg.role == "user" or msg.role == "assistant") then
+            table.insert(messages, {
+                role = msg.role,
+                content = tostring(msg.content or "")
+            })
+        end
+    end
+
+    return messages
+end
+
+function App:replaySessionToUI(session)
+    local ui = _G.AIAnalyzer.UI
+    if not ui then
+        return
+    end
+
+    ui:clearMessages()
+    local renderable = self:getRenderableSessionMessages(session)
+    if #renderable == 0 then
+        self:showWelcome()
+        return
+    end
+
+    for _, msg in ipairs(renderable) do
+        ui:addMessage(msg.content, msg.role == "user")
+    end
+end
+
+function App:refreshSessionSidebar(selectedId)
+    local ui = _G.AIAnalyzer.UI
+    local SessionManager = _G.AIAnalyzer.SessionManager
+    if not ui or not SessionManager or not ui.refreshSessionList then
+        return
+    end
+
+    local sessions, currentId = SessionManager:listSessions()
+    local activeId = selectedId or self.currentSessionId or currentId
+
+    ui:refreshSessionList(sessions, function(sessionMeta)
+        self:switchSession(sessionMeta.id)
+    end, function(sessionMeta)
+        self:deleteSession(sessionMeta.id)
+    end, activeId)
+
+    local previewId = activeId or (sessions[1] and sessions[1].id)
+    if previewId then
+        local previewSession = SessionManager:getSession(previewId)
+        ui:setSessionPreview(previewSession, self:getRenderableSessionMessages(previewSession))
+    else
+        ui:setSessionPreview(nil, {})
+    end
+end
+
+function App:createNewSession()
+    local ui = _G.AIAnalyzer.UI
+    local SessionManager = _G.AIAnalyzer.SessionManager
+    local ContextManager = _G.AIAnalyzer.ContextManager
+    local Tools = _G.AIAnalyzer.Tools
+
+    if not SessionManager or not ContextManager then
+        if ui then
+            ui:addMessage("❌ SessionManager或ContextManager未加载", false)
+        end
+        return false
+    end
+
+    self:saveCurrentSession()
+    local created, err = SessionManager:createSession("新会话")
+    if not created then
+        if ui then
+            ui:addMessage("❌ 创建会话失败: " .. tostring(err), false)
+        end
+        return false
+    end
+
+    self.currentSessionId = created.id
+    ContextManager.reset()
+    if Tools then Tools:clearCache() end
+    self:showWelcome()
+    self:refreshSessionSidebar(created.id)
+    if ui then
+        ui:showView("sessions")
+        ui:addMessage("✅ 已创建新会话: `" .. created.id .. "`", false)
+    end
+    return true
+end
+
+function App:switchSession(sessionId)
+    local ui = _G.AIAnalyzer.UI
+    local SessionManager = _G.AIAnalyzer.SessionManager
+    local ContextManager = _G.AIAnalyzer.ContextManager
+    local Tools = _G.AIAnalyzer.Tools
+
+    if not sessionId or sessionId == "" then
+        return false
+    end
+
+    self:saveCurrentSession()
+    local session = SessionManager and SessionManager:getSession(sessionId)
+    if not session then
+        if ui then
+            ui:addMessage("❌ 未找到会话: " .. tostring(sessionId), false)
+        end
+        return false
+    end
+
+    local ctx = ContextManager.reset()
+    ctx:importState(session)
+    if Tools then Tools:clearCache() end
+    self.currentSessionId = session.id
+    if SessionManager then
+        SessionManager:setCurrentSessionId(session.id)
+    end
+
+    self:replaySessionToUI(session)
+    self:refreshSessionSidebar(session.id)
+    if ui then
+        ui:showView("sessions")
+    end
+    return true
+end
+
+function App:deleteSession(sessionId)
+    local ui = _G.AIAnalyzer.UI
+    local SessionManager = _G.AIAnalyzer.SessionManager
+    local ContextManager = _G.AIAnalyzer.ContextManager
+    local Tools = _G.AIAnalyzer.Tools
+
+    if not SessionManager or not sessionId or sessionId == "" then
+        return false
+    end
+
+    local success, nextId = SessionManager:deleteSession(sessionId)
+    if not success then
+        if ui then
+            ui:addMessage("❌ 删除会话失败: `" .. tostring(sessionId) .. "`", false)
+        end
+        return false
+    end
+
+    if self.currentSessionId == sessionId then
+        local ctx = ContextManager.reset()
+        if nextId then
+            local nextSession = SessionManager:getSession(nextId)
+            if nextSession then
+                ctx:importState(nextSession)
+                self.currentSessionId = nextId
+                self:replaySessionToUI(nextSession)
+            end
+        else
+            self.currentSessionId = nil
+            if Tools then Tools:clearCache() end
+            self:showWelcome()
+        end
+    end
+
+    self:refreshSessionSidebar(nextId)
+    if ui then
+        ui:showView("sessions")
+        ui:addMessage("✅ 已删除会话: `" .. tostring(sessionId) .. "`", false)
+    end
+    return true
 end
 
 -- 加载中UI
@@ -472,6 +656,11 @@ function App:setupUI()
     ui:createSidebarButton("资源", "📁", function()
         ui:showView("resources")
     end)
+
+    ui:createSidebarButton("历史会话", "🕘", function()
+        self:refreshSessionSidebar()
+        ui:showView("sessions")
+    end)
     
     ui:createSidebarButton("设置", "⚙️", function()
         ui:showView("settings")
@@ -480,9 +669,11 @@ function App:setupUI()
     ui:createChatView()
     ui:createSettingsView()
     ui:createResourceView()
+    ui:createSessionView()
     
     ui:showView("chat")
     self:updateConnectionStatus()
+    self:refreshSessionSidebar()
     
     -- 初始化设置页面数据
     self:loadSettings()
@@ -563,6 +754,12 @@ function App:bindEvents()
     ui.resourceSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         self:searchResources(ui.resourceSearchBox.Text)
     end)
+
+    if ui.newSessionBtn then
+        ui.newSessionBtn.MouseButton1Click:Connect(function()
+            self:createNewSession()
+        end)
+    end
 end
 
 function App:setupCallbacks()
@@ -877,65 +1074,19 @@ function App:handleSessionCommand(raw)
     end
 
     if cmd == "new" then
-        self:saveCurrentSession()
-        local created, err = SessionManager:createSession("新会话")
-        if not created then
-            ui:addMessage("❌ 创建会话失败: " .. tostring(err), false)
-            return
-        end
-        self.currentSessionId = created.id
-        ContextManager.reset()
-        if Tools then Tools:clearCache() end
-        ui:clearMessages()
-        self:showWelcome()
-        ui:addMessage("✅ 已创建新会话: `" .. created.id .. "`", false)
+        self:createNewSession()
         return
     end
 
     local switchId = cmd:match("^switch%s+(.+)$")
     if switchId then
-        self:saveCurrentSession()
-        local session = SessionManager:getSession(switchId)
-        if not session then
-            ui:addMessage("❌ 未找到会话: " .. tostring(switchId), false)
-            return
-        end
-        local ctx = ContextManager.reset()
-        ctx:importState(session)
-        if Tools then Tools:clearCache() end
-        self.currentSessionId = session.id
-        SessionManager:setCurrentSessionId(session.id)
-        ui:clearMessages()
-        self:showWelcome()
-        ui:addMessage("✅ 已切换会话: `" .. session.id .. "`", false)
+        self:switchSession(switchId)
         return
     end
 
     local deleteId = cmd:match("^delete%s+(.+)$")
     if deleteId then
-        local success, nextId = SessionManager:deleteSession(deleteId)
-        if not success then
-            ui:addMessage("❌ 删除会话失败: `" .. tostring(deleteId) .. "`", false)
-            return
-        end
-        ui:addMessage("✅ 已删除会话: `" .. tostring(deleteId) .. "`", false)
-        if self.currentSessionId == deleteId then
-            local ctx = ContextManager.reset()
-            if nextId then
-                local session = SessionManager:getSession(nextId)
-                if session then
-                    ctx:importState(session)
-                    self.currentSessionId = nextId
-                    ui:clearMessages()
-                    self:showWelcome()
-                end
-            else
-                self.currentSessionId = nil
-                if Tools then Tools:clearCache() end
-                ui:clearMessages()
-                self:showWelcome()
-            end
-        end
+        self:deleteSession(deleteId)
         return
     end
 

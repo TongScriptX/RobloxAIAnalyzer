@@ -105,6 +105,77 @@ local function createHeaders(provider)
     }
 end
 
+function AIClient:generateSessionTitle(messages)
+    local Config, Http = getDeps()
+    if not Config then
+        return nil, "Config module not loaded"
+    end
+
+    local provider = Config:getCurrentProvider()
+    if not provider or not provider.apiKey or provider.apiKey == "" then
+        return nil, "API Key not configured"
+    end
+    if not Http or not Http:canRequestExternal() then
+        return nil, "External HTTP requests not supported"
+    end
+
+    local lines = {}
+    for _, msg in ipairs(messages or {}) do
+        if msg.role == "user" or msg.role == "assistant" then
+            local role = msg.role == "user" and "用户" or "AI"
+            local content = trim(msg.content or ""):gsub("%s+", " ")
+            if content ~= "" then
+                lines[#lines + 1] = role .. ": " .. content:sub(1, 180)
+            end
+        end
+        if #lines >= 12 then
+            break
+        end
+    end
+
+    if #lines == 0 then
+        return nil, "No usable messages"
+    end
+
+    local promptMessages = {
+        {
+            role = "system",
+            content = "请根据对话内容生成一个简短会话标题。要求：只输出标题本身；中文；10到18个字；不要引号，不要标点结尾，不要前缀。"
+        },
+        {
+            role = "user",
+            content = table.concat(lines, "\n")
+        }
+    }
+
+    local url = buildRequestUrl(provider)
+    local headers = createHeaders(provider)
+    local body = {
+        model = provider.defaultModel,
+        messages = promptMessages,
+        max_tokens = 32,
+        temperature = 0.3,
+        stream = false
+    }
+
+    local response = Http:jsonRequest(url, "POST", body, headers)
+    if not response.success or not response.data then
+        return nil, formatRequestError(response)
+    end
+
+    local choice = response.data.choices and response.data.choices[1]
+    local title = choice and choice.message and choice.message.content
+    title = trim(title or ""):gsub("[\r\n]+", " ")
+    if title == "" then
+        return nil, "Empty title response"
+    end
+
+    if #title > 32 then
+        title = title:sub(1, 32)
+    end
+    return title
+end
+
 -- 发送聊天请求（支持工具调用和上下文管理）
 function AIClient:chat(userMessage, systemPrompt, options)
     local Config, Http, Tools, Scanner, Reader, ContextManager, UI, Executor = getDeps()
@@ -241,6 +312,11 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     ["get_resource_info"] = "📦 正在获取资源信息...",
                     ["read_script"] = "📄 正在读取脚本...",
                     ["save_script"] = "💾 正在保存脚本...",
+                    ["list_remotes"] = "📡 正在列出 Remotes...",
+                    ["get_remote_info"] = "📡 正在获取 Remote 信息...",
+                    ["analyze_remote_usage"] = "🧭 正在分析 Remote 使用...",
+                    ["call_remote"] = "⚡ 正在调用 Remote...",
+                    ["remote_interceptor"] = "🛡️ 正在更新 Remote 拦截...",
                     ["search_in_script"] = "🔍 正在搜索脚本内容...",
                     ["run_script"] = "⚡ 正在执行脚本...",
                     ["get_game_info"] = "🎮 正在获取游戏信息...",
@@ -720,7 +796,12 @@ end
 Available tools (CALL these functions, DO NOT output as text):
 - search_resources: Search by name/type (use specific keywords)
 - read_script: Read script source code
+- save_script: Save script or executor file to executor path
+- list_remotes: List remotes
 - get_remote_info: Get Remote details
+- analyze_remote_usage: Find scripts that reference a remote
+- call_remote: Call a remote directly
+- remote_interceptor: Start/stop/status remote interception
 - list_resources: List all resources of a type
 - search_in_script: Search text/code inside scripts
 - get_console_output: Read console output logs
