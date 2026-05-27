@@ -182,6 +182,26 @@ function Http:post(url, body, headers)
 end
 
 -- 递归净化 table，把所有不可 JSON 序列化的值转为 string，防止 JSONEncode 报错
+local function isArray(tbl)
+    if type(tbl) ~= "table" then
+        return false
+    end
+
+    local count = 0
+    local maxIndex = 0
+    for k in pairs(tbl) do
+        if type(k) ~= "number" or k < 1 or k % 1 ~= 0 then
+            return false
+        end
+        count = count + 1
+        if k > maxIndex then
+            maxIndex = k
+        end
+    end
+
+    return count == maxIndex
+end
+
 local function sanitizeForJSON(v, depth)
     depth = depth or 0
     if depth > 20 then return "[too deep]" end
@@ -200,9 +220,15 @@ local function sanitizeForJSON(v, depth)
         return nil
     elseif t == "table" then
         local clean = {}
-        for k, val in pairs(v) do
-            local ck = type(k) == "string" and k or tostring(k)
-            clean[ck] = sanitizeForJSON(val, depth + 1)
+        if isArray(v) then
+            for i = 1, #v do
+                clean[i] = sanitizeForJSON(v[i], depth + 1)
+            end
+        else
+            for k, val in pairs(v) do
+                local ck = type(k) == "string" and k or tostring(k)
+                clean[ck] = sanitizeForJSON(val, depth + 1)
+            end
         end
         return clean
     else
