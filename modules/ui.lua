@@ -95,16 +95,17 @@ function UI:refreshMessageAreaLayout()
         return
     end
 
+    local messageWidth = math.max(0, self.messageArea.AbsoluteSize.X - 12)
     for _, child in ipairs(self.messageArea:GetChildren()) do
         if child:IsA("Frame") then
             local container = child:FindFirstChild("Container")
             if container and container:IsA("Frame") then
                 container.AutomaticSize = Enum.AutomaticSize.None
-                container.Size = UDim2.new(1, -12, 0, container.AbsoluteSize.Y)
+                container.Size = UDim2.new(0, math.max(0, messageWidth - 12), 0, 0)
             end
 
             child.AutomaticSize = Enum.AutomaticSize.None
-            child.Size = UDim2.new(1, -12, 0, child.AbsoluteSize.Y)
+            child.Size = UDim2.new(0, messageWidth, 0, 0)
         end
     end
 
@@ -114,7 +115,7 @@ function UI:refreshMessageAreaLayout()
         if descendant:IsA("TextLabel") and descendant.TextWrapped then
             local text = descendant.Text
             descendant.AutomaticSize = Enum.AutomaticSize.None
-            descendant.Size = UDim2.new(descendant.Size.X.Scale, descendant.Size.X.Offset, 0, descendant.TextBounds.Y)
+            descendant.Size = UDim2.new(descendant.Size.X.Scale, descendant.Size.X.Offset, 0, 0)
             descendant.Text = text
             descendant.AutomaticSize = Enum.AutomaticSize.Y
         end
@@ -134,8 +135,9 @@ function UI:refreshMessageAreaLayout()
 
     local listLayout = self.messageArea:FindFirstChild("UIListLayout")
     if listLayout then
-        self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
-        self.messageArea.CanvasPosition = Vector2.new(0, listLayout.AbsoluteContentSize.Y)
+        local contentHeight = listLayout.AbsoluteContentSize.Y + 12
+        self.messageArea.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
+        self.messageArea.CanvasPosition = Vector2.new(0, math.max(0, contentHeight - self.messageArea.AbsoluteWindowSize.Y))
     end
 end
 
@@ -1422,8 +1424,9 @@ function UI:addMessage(text, isUser, reasoning)
     task.wait()
     local listLayout = self.messageArea:FindFirstChild("UIListLayout")
     if listLayout then
-        self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
-        self.messageArea.CanvasPosition = Vector2.new(0, listLayout.AbsoluteContentSize.Y)
+        local contentHeight = listLayout.AbsoluteContentSize.Y + 12
+        self.messageArea.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
+        self.messageArea.CanvasPosition = Vector2.new(0, math.max(0, contentHeight - self.messageArea.AbsoluteWindowSize.Y))
     end
     
     return msgFrame, codeBlocks

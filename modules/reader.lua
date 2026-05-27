@@ -7,6 +7,35 @@ Reader.apiUrl = "https://api.lua.expert/decompile"
 Reader.minRequestInterval = 0.6
 Reader.lastRequestAt = 0
 
+local function base64Encode(data)
+    if HttpService.Base64Encode then
+        return HttpService:Base64Encode(data)
+    end
+
+    local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    return ((data:gsub(".", function(char)
+        local bits = ""
+        local byte = char:byte()
+        for i = 8, 1, -1 do
+            bits = bits .. ((byte % 2^i - byte % 2^(i - 1) > 0) and "1" or "0")
+        end
+        return bits
+    end) .. "0000"):gsub("%d%d%d?%d?%d?%d?", function(chunk)
+        if #chunk < 6 then
+            return ""
+        end
+
+        local value = 0
+        for i = 1, 6 do
+            if chunk:sub(i, i) == "1" then
+                value = value + 2^(6 - i)
+            end
+        end
+
+        return alphabet:sub(value + 1, value + 1)
+    end) .. ({ "", "==", "=" })[#data % 3 + 1])
+end
+
 -- 检测字节码读取函数
 local function detectBytecodeReader()
     if getscriptbytecode then
@@ -37,7 +66,8 @@ local function detectGetScripts()
             game:GetService("ReplicatedFirst"),
             game:GetService("StarterGui"),
             game:GetService("StarterPack"),
-            game:GetService("StarterPlayer")
+            game:GetService("StarterPlayer"),
+            game:GetService("Players")
         }
         
         for _, service in ipairs(services) do
@@ -127,7 +157,7 @@ function Reader:fetchDecompiledSource(scriptInstance)
         task.wait(self.minRequestInterval - elapsed)
     end
 
-    local encoded = HttpService:Base64Encode(bytecode)
+    local encoded = base64Encode(bytecode)
     local response = Http:jsonRequest(self.apiUrl, "POST", {
         script = encoded
     })
