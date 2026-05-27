@@ -8,8 +8,15 @@ Reader.minRequestInterval = 0.6
 Reader.lastRequestAt = 0
 
 local function base64Encode(data)
-    if HttpService.Base64Encode then
+    local ok, encoded = pcall(function()
         return HttpService:Base64Encode(data)
+    end)
+    if ok and encoded then
+        return encoded
+    end
+
+    if base64_encode then
+        return base64_encode(data)
     end
 
     local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"

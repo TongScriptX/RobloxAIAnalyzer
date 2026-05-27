@@ -95,6 +95,10 @@ function UI:refreshMessageAreaLayout()
         return
     end
 
+    if self.messageArea.AbsoluteSize.X <= 20 then
+        return
+    end
+
     local messageWidth = math.max(0, self.messageArea.AbsoluteSize.X - 12)
     for _, child in ipairs(self.messageArea:GetChildren()) do
         if child:IsA("Frame") then
@@ -109,7 +113,7 @@ function UI:refreshMessageAreaLayout()
         end
     end
 
-    RunService.Heartbeat:Wait()
+    task.wait()
 
     for _, descendant in ipairs(self.messageArea:GetDescendants()) do
         if descendant:IsA("TextLabel") and descendant.TextWrapped then
@@ -121,7 +125,7 @@ function UI:refreshMessageAreaLayout()
         end
     end
 
-    RunService.Heartbeat:Wait()
+    task.wait()
 
     for _, child in ipairs(self.messageArea:GetChildren()) do
         if child:IsA("Frame") then
@@ -133,12 +137,30 @@ function UI:refreshMessageAreaLayout()
         end
     end
 
+    task.wait()
+
     local listLayout = self.messageArea:FindFirstChild("UIListLayout")
     if listLayout then
         local contentHeight = listLayout.AbsoluteContentSize.Y + 12
         self.messageArea.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
         self.messageArea.CanvasPosition = Vector2.new(0, math.max(0, contentHeight - self.messageArea.AbsoluteWindowSize.Y))
     end
+end
+
+function UI:refreshMessageAreaLayoutDeferred(maxAttempts)
+    maxAttempts = maxAttempts or 12
+
+    task.spawn(function()
+        for _ = 1, maxAttempts do
+            if self.messageArea and self.mainContent and self.mainContent.Visible and self.messageArea.AbsoluteSize.X > 20 then
+                self:refreshMessageAreaLayout()
+                return
+            end
+            task.wait(0.05)
+        end
+
+        self:refreshMessageAreaLayout()
+    end)
 end
 
 -- 创建主窗口
@@ -437,8 +459,7 @@ function UI:toggleMinimize()
         expandTween.Completed:Connect(function()
             if self.mainContent then self.mainContent.Visible = true end
             if self.messageArea then
-                task.wait(0.05)
-                self:refreshMessageAreaLayout()
+                self:refreshMessageAreaLayoutDeferred()
             end
         end)
     end
@@ -561,9 +582,7 @@ function UI:resizeWindow()
         Position = UDim2.new(0, sidebarW + 10, 0, 5)
     }):Play()
 
-    task.delay(0.35, function()
-        self:refreshMessageAreaLayout()
-    end)
+    self:refreshMessageAreaLayoutDeferred()
 end
 
 -- 侧边栏按钮
@@ -634,7 +653,6 @@ function UI:createChatView()
     messageArea.ScrollBarThickness = 5
     messageArea.ScrollBarImageColor3 = self.Theme.accent
     messageArea.CanvasSize = UDim2.new(0, 0, 0, 0)
-    messageArea.AutomaticCanvasSize = Enum.AutomaticSize.Y
     createCorner(messageArea, 8)
     
     local listLayout = Instance.new("UIListLayout", messageArea)
