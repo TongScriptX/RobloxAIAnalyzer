@@ -1284,6 +1284,83 @@ function UI:createThinkingBlock(reasoning, parent)
     return thinkingFrame
 end
 
+function UI:createCollapsibleSystemBlock(titleText, bodyText, parent)
+    local isExpanded = false
+
+    local blockFrame = Instance.new("Frame", parent)
+    blockFrame.Size = UDim2.new(1, 0, 0, 0)
+    blockFrame.BackgroundColor3 = Color3.fromRGB(40, 44, 54)
+    blockFrame.BorderSizePixel = 0
+    blockFrame.AutomaticSize = Enum.AutomaticSize.Y
+    createCorner(blockFrame, 6)
+
+    local container = Instance.new("Frame", blockFrame)
+    container.Size = UDim2.new(1, -8, 0, 0)
+    container.Position = UDim2.new(0, 4, 0, 4)
+    container.BackgroundTransparency = 1
+    container.AutomaticSize = Enum.AutomaticSize.Y
+
+    local listLayout = Instance.new("UIListLayout", container)
+    listLayout.Padding = UDim.new(0, 4)
+
+    local header = Instance.new("TextButton", container)
+    header.Size = UDim2.new(1, 0, 0, 28)
+    header.BackgroundTransparency = 1
+    header.Text = ""
+
+    local icon = Instance.new("TextLabel", header)
+    icon.Size = UDim2.new(0, 20, 1, 0)
+    icon.Position = UDim2.new(0, 0, 0, 0)
+    icon.BackgroundTransparency = 1
+    icon.Text = "🛠️"
+    icon.TextSize = 14
+    icon.Font = Enum.Font.Gotham
+
+    local title = Instance.new("TextLabel", header)
+    title.Size = UDim2.new(1, -40, 1, 0)
+    title.Position = UDim2.new(0, 22, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = titleText
+    title.TextColor3 = self.Theme.textSecondary
+    title.TextSize = 12
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local arrow = Instance.new("TextLabel", header)
+    arrow.Size = UDim2.new(0, 16, 1, 0)
+    arrow.Position = UDim2.new(1, -16, 0, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Text = "▶"
+    arrow.TextColor3 = self.Theme.textMuted
+    arrow.TextSize = 10
+    arrow.Font = Enum.Font.Gotham
+
+    local contentFrame = Instance.new("Frame", container)
+    contentFrame.Size = UDim2.new(1, 0, 0, 0)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.AutomaticSize = Enum.AutomaticSize.Y
+    contentFrame.Visible = false
+
+    local contentLabel = Instance.new("TextLabel", contentFrame)
+    contentLabel.Size = UDim2.new(1, 0, 0, 0)
+    contentLabel.BackgroundTransparency = 1
+    contentLabel.Text = bodyText
+    contentLabel.TextColor3 = self.Theme.text
+    contentLabel.TextSize = 12
+    contentLabel.Font = Enum.Font.Gotham
+    contentLabel.TextWrapped = true
+    contentLabel.TextXAlignment = Enum.TextXAlignment.Left
+    contentLabel.AutomaticSize = Enum.AutomaticSize.Y
+
+    header.MouseButton1Click:Connect(function()
+        isExpanded = not isExpanded
+        contentFrame.Visible = isExpanded
+        arrow.Text = isExpanded and "▼" or "▶"
+    end)
+
+    return blockFrame
+end
+
 UI.messageCallbacks = {}
 
 function UI:onExecute(callback)
@@ -1295,7 +1372,8 @@ function UI:onSave(callback)
 end
 
 -- 添加消息气泡（支持Markdown和思考过程）
-function UI:addMessage(text, isUser, reasoning)
+function UI:addMessage(text, isUser, reasoning, options)
+    options = options or {}
     local blocks = parseMarkdown(text)
 
     local msgFrame = Instance.new("Frame", self.messageArea)
@@ -1319,6 +1397,15 @@ function UI:addMessage(text, isUser, reasoning)
     -- 如果有思考过程，先显示思考区域
     if reasoning and #reasoning > 0 then
         local thinkingFrame = self:createThinkingBlock(reasoning, container)
+    end
+
+    if options.collapsibleSystem then
+        self:createCollapsibleSystemBlock(options.title or "工具调用", text, container)
+        task.wait()
+        container.AutomaticSize = Enum.AutomaticSize.Y
+        msgFrame.AutomaticSize = Enum.AutomaticSize.Y
+        self:refreshMessageAreaLayoutDeferred(6)
+        return msgFrame, {}
     end
     
     -- 存储所有代码块用于操作
@@ -3337,7 +3424,15 @@ function UI:showResourceDialog(resource, callbacks)
 end
 
 -- 系统消息
-function UI:addSystemMessage(text)
+function UI:addSystemMessage(text, options)
+    options = options or {}
+    if options.collapsible then
+        self:addMessage(text, false, nil, {
+            collapsibleSystem = true,
+            title = options.title or "工具调用"
+        })
+        return
+    end
     self:addMessage("ℹ️ " .. text, false)
 end
 

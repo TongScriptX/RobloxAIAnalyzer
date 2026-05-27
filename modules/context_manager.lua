@@ -51,6 +51,25 @@ local COMPRESS_THRESHOLD = 0.85
 -- 工具输出最大字符数（超出则截断，保留头尾）
 local TOOL_OUTPUT_MAX_CHARS = 30000
 
+local function toSafeText(value)
+    if value == nil then
+        return ""
+    end
+    return tostring(value)
+end
+
+local function trimText(value)
+    return toSafeText(value):match("^%s*(.-)%s*$")
+end
+
+local function cloneArray(items)
+    local out = {}
+    for i, v in ipairs(items or {}) do
+        out[i] = v
+    end
+    return out
+end
+
 -- 初始化
 function ContextManager:init()
     self.messages = {}  -- 对话历史
@@ -213,7 +232,7 @@ function ContextManager:shouldCompress()
 end
 
 -- 自动压缩（参考 Claude Code：保留 summary + 最近 4 条消息）
-function ContextManager:autoCompress()
+function ContextManager:autoCompress(focus)
     local keepCount = 4  -- 保留最近 2 轮对话
 
     if #self.messages <= keepCount then
@@ -235,7 +254,7 @@ function ContextManager:autoCompress()
         table.insert(toCompress, self.messages[i])
     end
 
-    self.summary = self:generateSummary(toCompress, self.summary)
+    self.summary = self:generateSummary(toCompress, self.summary, focus)
 
     for i = 1, #toCompress do
         table.remove(self.messages, 1)
@@ -247,7 +266,7 @@ function ContextManager:autoCompress()
 end
 
 -- 生成摘要（记录用户问题、AI 结论、工具调用、生成代码）
-function ContextManager:generateSummary(messages, oldSummary)
+function ContextManager:generateSummary(messages, oldSummary, focus)
     local parts = {}
 
     if oldSummary then
@@ -261,17 +280,27 @@ function ContextManager:generateSummary(messages, oldSummary)
     local aiConclusions = {}
     local toolsUsed = {}
     local codeGenerated = {}
+    local resourceRefs = {}
+    local openThreads = {}
 
     for _, msg in ipairs(messages) do
         if msg.role == "user" then
-            table.insert(userQueries, msg.content)
+            local content = toSafeText(msg.content)
+            table.insert(userQueries, content)
+            if content:find("继续", 1, true) or content:find("下一步", 1, true) then
+                table.insert(openThreads, content:sub(1, 120))
+            end
         elseif msg.role == "assistant" then
-            if msg.content and msg.content ~= "" then
+            local content = toSafeText(msg.content)
+            if content ~= "" then
                 -- 取前 150 字作为结论摘要
-                table.insert(aiConclusions, msg.content:sub(1, 150))
-                local code = msg.content:match("```lua\n(.-)```")
+                table.insert(aiConclusions, content:sub(1, 150))
+                local code = content:match("```lua\n(.-)```")
                 if code then
                     table.insert(codeGenerated, code:sub(1, 200))
+                end
+                for path in content:gmatch("([%w_%-/%.]+%.lua)") do
+                    table.insert(resourceRefs, path)
                 end
             end
             if msg.tool_calls then
@@ -284,11 +313,16 @@ function ContextManager:generateSummary(messages, oldSummary)
         end
     end
 
+    if focus and trimText(focus) ~= "" then
+        table.insert(parts, "压缩焦点:")
+        table.insert(parts, "  - " .. toSafeText(focus):sub(1, 160))
+    end
+
     if #userQueries > 0 then
         table.insert(parts, "用户问题:")
         for i, q in ipairs(userQueries) do
             if i <= 5 then
-                table.insert(parts, "  - " .. q:sub(1, 120))
+                table.insert(parts, "  - " .. toSafeText(q):sub(1, 120))
             end
         end
     end
@@ -297,7 +331,7 @@ function ContextManager:generateSummary(messages, oldSummary)
         table.insert(parts, "AI 回复要点:")
         for i, c in ipairs(aiConclusions) do
             if i <= 3 then
-                table.insert(parts, "  - " .. c:gsub("\n", " "))
+                table.insert(parts, "  - " .. toSafeText(c):gsub("\n", " "))
             end
         end
     end
@@ -312,8 +346,31 @@ function ContextManager:generateSummary(messages, oldSummary)
         table.insert(parts, "使用工具: " .. table.concat(unique, ", "))
     end
 
+    if #resourceRefs > 0 then
+        local seen = {}
+        local unique = {}
+        for _, item in ipairs(resourceRefs) do
+            if not seen[item] then
+                seen[item] = true
+                table.insert(unique, item)
+            end
+        end
+        if #unique > 0 then
+            table.insert(parts, "涉及资源/文件: " .. table.concat(unique, ", "):sub(1, 500))
+        end
+    end
+
     if #codeGenerated > 0 then
         table.insert(parts, "生成了 " .. #codeGenerated .. " 段代码")
+    end
+
+    if #openThreads > 0 then
+        table.insert(parts, "未完成事项:")
+        for i, item in ipairs(openThreads) do
+            if i <= 3 then
+                table.insert(parts, "  - " .. toSafeText(item):sub(1, 120))
+            end
+        end
     end
 
     return table.concat(parts, "\n")
@@ -333,11 +390,36 @@ function ContextManager:compress()
     return self:autoCompress()
 end
 
+function ContextManager:compressWithFocus(focus)
+    return self:autoCompress(focus)
+end
+
 -- 清空历史
 function ContextManager:clear()
     self.messages = {}
     self.summary = nil
     self.totalTokens = 0
+end
+
+function ContextManager:exportState()
+    return {
+        messages = cloneArray(self.messages),
+        summary = self.summary,
+        totalTokens = self.totalTokens,
+        maxTokens = self.maxTokens,
+        modelName = self.modelName
+    }
+end
+
+function ContextManager:importState(state)
+    state = type(state) == "table" and state or {}
+    self.messages = cloneArray(state.messages or {})
+    self.summary = state.summary
+    self.totalTokens = tonumber(state.totalTokens) or 0
+    self.maxTokens = tonumber(state.maxTokens) or MODEL_LIMITS["default"]
+    self.modelName = state.modelName
+    self:recalculateTokens()
+    return true
 end
 
 -- 净化单条消息，只保留 API 需要的字段，防止 JSONEncode 失败

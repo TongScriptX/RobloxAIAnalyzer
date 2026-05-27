@@ -360,7 +360,10 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     statusMsg = statusMsg .. "\n✅ 执行成功"
                 end
                 
-                UI:addSystemMessage(statusMsg)
+                UI:addSystemMessage(statusMsg, {
+                    collapsible = true,
+                    title = "工具调用"
+                })
             end
             
             -- 添加工具结果到消息
