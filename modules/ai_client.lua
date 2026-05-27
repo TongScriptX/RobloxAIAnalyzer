@@ -240,6 +240,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     ["scan_resources"] = "🔍 正在扫描游戏资源...",
                     ["get_resource_info"] = "📦 正在获取资源信息...",
                     ["read_script"] = "📄 正在读取脚本...",
+                    ["save_script"] = "💾 正在保存脚本...",
                     ["search_in_script"] = "🔍 正在搜索脚本内容...",
                     ["run_script"] = "⚡ 正在执行脚本...",
                     ["get_game_info"] = "🎮 正在获取游戏信息...",
@@ -312,6 +313,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     ["scan_resources"] = "扫描游戏资源",
                     ["get_resource_info"] = "获取资源信息",
                     ["read_script"] = "读取脚本",
+                    ["save_script"] = "保存脚本",
                     ["search_in_script"] = "搜索脚本内容",
                     ["run_script"] = "执行脚本",
                     ["get_game_info"] = "获取游戏信息",
@@ -329,6 +331,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     end
                     if toolArgs.name then
                         statusMsg = statusMsg .. "\n📛 名称: `" .. tostring(toolArgs.name) .. "`"
+                    end
+                    if toolArgs.output_path then
+                        statusMsg = statusMsg .. "\n💾 保存到: `" .. tostring(toolArgs.output_path) .. "`"
                     end
                     if toolArgs.query then
                         statusMsg = statusMsg .. "\n🔍 查询: `" .. tostring(toolArgs.query):sub(1, 50) .. "`"

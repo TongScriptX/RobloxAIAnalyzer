@@ -79,7 +79,7 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "read_script",
-            description = "读取指定脚本的源代码。可以读取完整脚本或指定行范围。返回脚本源码。使用@前缀读取注入器文件系统中的文件（如 @workspace/script.lua）。",
+            description = "读取指定脚本的源代码。可以读取完整脚本或指定行范围。返回脚本源码和读取状态。使用@前缀读取注入器文件系统中的文件（如 @workspace/script.lua）。",
             parameters = {
                 type = "object",
                 properties = {
@@ -97,6 +97,35 @@ Tools.definitions = {
                     }
                 },
                 required = {"name"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "save_script",
+            description = "将游戏内脚本或执行器文件保存到注入器指定路径。支持把 read_script 读取到的内容直接落盘。",
+            parameters = {
+                type = "object",
+                properties = {
+                    name = {
+                        type = "string",
+                        description = "脚本名称或路径。使用@前缀读取注入器文件（如 @workspace/test.lua），否则读取游戏内脚本"
+                    },
+                    output_path = {
+                        type = "string",
+                        description = "保存到执行器文件系统中的目标路径，例如 AICli/output/test.lua"
+                    },
+                    start_line = {
+                        type = "integer",
+                        description = "可选：仅读取并保存起始行号之后的内容"
+                    },
+                    end_line = {
+                        type = "integer",
+                        description = "可选：仅读取并保存结束行号之前的内容"
+                    }
+                },
+                required = {"name", "output_path"}
             }
         }
     },
@@ -449,7 +478,7 @@ function Tools:execute(toolName, args, context)
         if not args.start_line and not args.end_line and self.resourceCache.scripts[nameKey] then
             local cached = self.resourceCache.scripts[nameKey]
             return { name = cached.name, type = cached.type, path = cached.path,
-                     source = cached.source, size = #cached.source, lines = cached.lines, _cached = true }
+                     source = cached.source, size = #cached.source, lines = cached.lines, _cached = true, status = "success", statusIcon = "✓" }
         end
         local result = self:readScript(args, Reader, Scanner, Executor)
         if not result.error and not args.start_line and not args.end_line then
@@ -459,6 +488,9 @@ function Tools:execute(toolName, args, context)
             }
         end
         return result
+
+    elseif toolName == "save_script" then
+        return self:saveScriptToFile(args, Reader, Scanner, Executor)
 
     elseif toolName == "get_remote_info" then
         local nameKey = (args.name or ""):lower()
@@ -598,15 +630,17 @@ function Tools:readScript(args, Reader, Scanner, Executor)
             }
         end
         
-        return {
-            name = filePath:match("[^/]+$") or filePath,
-            type = "executor_file",
-            path = filePath,
-            source = content,
-            size = #content,
-            lines = totalLines
-        }
-    end
+            return {
+                name = filePath:match("[^/]+$") or filePath,
+                type = "executor_file",
+                path = filePath,
+                source = content,
+                size = #content,
+                lines = totalLines,
+                status = "success",
+                statusIcon = "✓"
+            }
+        end
     
     -- 游戏内脚本读取
     if not Reader or not Reader:canDecompile() then
@@ -682,6 +716,8 @@ function Tools:readScript(args, Reader, Scanner, Executor)
                     source = source,
                     size = #source,
                     lines = totalLines,
+                    status = "success",
+                    statusIcon = "✓",
                     lineRange = {
                         start = startLine,
                         end_ = math.min(endLine, #lines),
@@ -696,12 +732,47 @@ function Tools:readScript(args, Reader, Scanner, Executor)
                 path = data.path,
                 source = source,
                 size = #source,
-                lines = totalLines
+                lines = totalLines,
+                status = "success",
+                statusIcon = "✓"
             }
         end
     end
     
     return {error = "Script not found: " .. name}
+end
+
+function Tools:saveScriptToFile(args, Reader, Scanner, Executor)
+    local outputPath = args.output_path
+    if not outputPath or outputPath == "" then
+        return {error = "Output path required"}
+    end
+
+    if not Executor or not Executor.writefile then
+        return {error = "File writing not supported by executor"}
+    end
+
+    local scriptData = self:readScript(args, Reader, Scanner, Executor)
+    if scriptData.error then
+        return scriptData
+    end
+
+    local success, writeErr = pcall(Executor.writefile, outputPath, scriptData.source or "")
+    if not success then
+        return {error = "Failed to save script: " .. tostring(writeErr)}
+    end
+
+    return {
+        success = true,
+        status = "success",
+        statusIcon = "✓",
+        name = scriptData.name,
+        type = scriptData.type,
+        sourcePath = scriptData.path,
+        outputPath = outputPath,
+        bytes = #(scriptData.source or ""),
+        lines = scriptData.lines or 0
+    }
 end
 
 -- 获取Remote信息
@@ -1119,6 +1190,9 @@ function Tools:formatResult(result)
             parts[#parts + 1] = string.format("  • %s [%s] - %s", r.name, r.type, r.path)
         end
     elseif result.source then
+        if result.statusIcon then
+            parts[#parts + 1] = string.format("%s Read script success", result.statusIcon)
+        end
         parts[#parts + 1] = string.format("Script: %s (%s)", result.name, result.type)
         parts[#parts + 1] = string.format("Path: %s", result.path)
         
@@ -1134,6 +1208,14 @@ function Tools:formatResult(result)
         parts[#parts + 1] = "```lua"
         parts[#parts + 1] = result.source
         parts[#parts + 1] = "```"
+    elseif result.outputPath then
+        if result.statusIcon then
+            parts[#parts + 1] = string.format("%s Save script success", result.statusIcon)
+        end
+        parts[#parts + 1] = string.format("Script: %s (%s)", result.name, result.type)
+        parts[#parts + 1] = string.format("Source Path: %s", result.sourcePath)
+        parts[#parts + 1] = string.format("Saved To: %s", result.outputPath)
+        parts[#parts + 1] = string.format("Size: %d bytes, %d lines", result.bytes or 0, result.lines or 0)
     elseif result.example then
         parts[#parts + 1] = string.format("Remote: %s (%s)", result.name, result.type)
         parts[#parts + 1] = string.format("Path: %s", result.path)
