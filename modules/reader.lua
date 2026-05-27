@@ -6,21 +6,31 @@ local HttpService = game:GetService("HttpService")
 Reader.apiUrl = "https://api.lua.expert/decompile"
 Reader.minRequestInterval = 0.6
 Reader.lastRequestAt = 0
+Reader.debug = true
+
+local function debugLog(message)
+    if Reader.debug then
+        print("[Reader DEBUG] " .. tostring(message))
+    end
+end
 
 local function base64Encode(data)
     local ok, encoded = pcall(function()
         return HttpService:Base64Encode(data)
     end)
     if ok and encoded then
+        debugLog("base64 via HttpService:Base64Encode, inputBytes=" .. tostring(#data) .. ", outputLen=" .. tostring(#encoded))
         return encoded
     end
 
     if base64_encode then
-        return base64_encode(data)
+        local result = base64_encode(data)
+        debugLog("base64 via global base64_encode, inputBytes=" .. tostring(#data) .. ", outputLen=" .. tostring(#result))
+        return result
     end
 
     local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    return ((data:gsub(".", function(char)
+    local result = ((data:gsub(".", function(char)
         local bits = ""
         local byte = char:byte()
         for i = 8, 1, -1 do
@@ -41,6 +51,8 @@ local function base64Encode(data)
 
         return alphabet:sub(value + 1, value + 1)
     end) .. ({ "", "==", "=" })[#data % 3 + 1])
+    debugLog("base64 via Lua fallback, inputBytes=" .. tostring(#data) .. ", outputLen=" .. tostring(#result))
+    return result
 end
 
 -- 检测字节码读取函数
@@ -108,16 +120,19 @@ end
 function Reader:requestDecompile(encodedBytecode)
     local Http = self:getHttpModule()
     if not Http then
+        debugLog("requestDecompile aborted: Http module not initialized")
         return nil, "Http module not initialized"
     end
 
     if not Http:canRequestExternal() then
+        debugLog("requestDecompile aborted: executor cannot request external URLs")
         return nil, "Executor does not support external HTTP requests"
     end
 
     local body = HttpService:JSONEncode({
         script = encodedBytecode
     })
+    debugLog("POST " .. self.apiUrl .. " bodyLen=" .. tostring(#body))
 
     local response = Http:request({
         Url = self.apiUrl,
@@ -128,6 +143,9 @@ function Reader:requestDecompile(encodedBytecode)
         Body = body
     })
 
+    debugLog("response status=" .. tostring(response and response.statusCode or "nil")
+        .. " bodyLen=" .. tostring(response and response.body and #tostring(response.body) or 0))
+
     if not response or response.statusCode ~= 200 then
         return nil, (response and response.body) or "no response"
     end
@@ -137,29 +155,37 @@ end
 
 function Reader:extractBytecode(scriptInstance)
     if not self.bytecodeFunc then
+        debugLog("extractBytecode aborted: no bytecode reader")
         return nil, "No bytecode reader available"
     end
 
+    debugLog("extractBytecode start: " .. tostring(scriptInstance:GetFullName()))
     local success, bytecode = pcall(self.bytecodeFunc, scriptInstance)
     if not success then
+        debugLog("extractBytecode failed: " .. tostring(bytecode))
         return nil, "Failed to read bytecode: " .. tostring(bytecode)
     end
 
     if not bytecode or bytecode == "" then
+        debugLog("extractBytecode returned empty bytecode")
         return nil, "Empty bytecode"
     end
 
+    debugLog("extractBytecode ok: bytes=" .. tostring(#bytecode))
     return bytecode
 end
 
 function Reader:fetchDecompiledSource(scriptInstance)
+    debugLog("fetchDecompiledSource start: " .. tostring(scriptInstance:GetFullName()))
     local bytecode, bytecodeErr = self:extractBytecode(scriptInstance)
     if not bytecode then
+        debugLog("fetchDecompiledSource abort: " .. tostring(bytecodeErr))
         return nil, bytecodeErr
     end
 
     local elapsed = os.clock() - self.lastRequestAt
     if elapsed < self.minRequestInterval then
+        debugLog(string.format("rate limit wait: %.3fs", self.minRequestInterval - elapsed))
         task.wait(self.minRequestInterval - elapsed)
     end
 
@@ -168,9 +194,11 @@ function Reader:fetchDecompiledSource(scriptInstance)
     self.lastRequestAt = os.clock()
 
     if not source or source == "" then
+        debugLog("fetchDecompiledSource failed: " .. tostring(requestErr))
         return nil, "lua.expert request failed: " .. tostring(requestErr)
     end
 
+    debugLog("fetchDecompiledSource ok: sourceLen=" .. tostring(#source))
     return source
 end
 
@@ -181,6 +209,7 @@ function Reader:readScript(scriptInstance)
     
     local cacheKey = tostring(scriptInstance)
     if self.cache[cacheKey] then
+        debugLog("readScript cache hit: " .. tostring(scriptInstance:GetFullName()))
         return self.cache[cacheKey]
     end
 
@@ -195,9 +224,11 @@ function Reader:readScript(scriptInstance)
             lines = select(2, source:gsub("\n", "\n")) + 1
         }
         self.cache[cacheKey] = result
+        debugLog("readScript cached: " .. tostring(result.path) .. " lines=" .. tostring(result.lines))
         return result
     end
 
+    debugLog("readScript failed: " .. tostring(err))
     return nil, err or "Failed to decompile script"
 end
 
