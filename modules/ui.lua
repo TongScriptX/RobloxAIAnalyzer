@@ -90,6 +90,55 @@ function UI:calculateSidebarWidth()
     return math.clamp(sidebarW, config.sidebarMinWidth, config.sidebarMaxWidth)
 end
 
+function UI:refreshMessageAreaLayout()
+    if not self.messageArea then
+        return
+    end
+
+    for _, child in ipairs(self.messageArea:GetChildren()) do
+        if child:IsA("Frame") then
+            local container = child:FindFirstChild("Container")
+            if container and container:IsA("Frame") then
+                container.AutomaticSize = Enum.AutomaticSize.None
+                container.Size = UDim2.new(1, -12, 0, container.AbsoluteSize.Y)
+            end
+
+            child.AutomaticSize = Enum.AutomaticSize.None
+            child.Size = UDim2.new(1, -12, 0, child.AbsoluteSize.Y)
+        end
+    end
+
+    RunService.Heartbeat:Wait()
+
+    for _, descendant in ipairs(self.messageArea:GetDescendants()) do
+        if descendant:IsA("TextLabel") and descendant.TextWrapped then
+            local text = descendant.Text
+            descendant.AutomaticSize = Enum.AutomaticSize.None
+            descendant.Size = UDim2.new(descendant.Size.X.Scale, descendant.Size.X.Offset, 0, descendant.TextBounds.Y)
+            descendant.Text = text
+            descendant.AutomaticSize = Enum.AutomaticSize.Y
+        end
+    end
+
+    RunService.Heartbeat:Wait()
+
+    for _, child in ipairs(self.messageArea:GetChildren()) do
+        if child:IsA("Frame") then
+            local container = child:FindFirstChild("Container")
+            if container and container:IsA("Frame") then
+                container.AutomaticSize = Enum.AutomaticSize.Y
+            end
+            child.AutomaticSize = Enum.AutomaticSize.Y
+        end
+    end
+
+    local listLayout = self.messageArea:FindFirstChild("UIListLayout")
+    if listLayout then
+        self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+        self.messageArea.CanvasPosition = Vector2.new(0, listLayout.AbsoluteContentSize.Y)
+    end
+end
+
 -- 创建主窗口
 function UI:createMainWindow()
     -- 主ScreenGui
@@ -386,12 +435,8 @@ function UI:toggleMinimize()
         expandTween.Completed:Connect(function()
             if self.mainContent then self.mainContent.Visible = true end
             if self.messageArea then
-                local listLayout = self.messageArea:FindFirstChild("UIListLayout")
-                if listLayout then
-                    task.wait(0.05)
-                    self.messageArea.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
-                    self.messageArea.CanvasPosition = Vector2.new(0, listLayout.AbsoluteContentSize.Y)
-                end
+                task.wait(0.05)
+                self:refreshMessageAreaLayout()
             end
         end)
     end
@@ -513,6 +558,10 @@ function UI:resizeWindow()
         Size = UDim2.new(1, -sidebarW - 15, 1, -10),
         Position = UDim2.new(0, sidebarW + 10, 0, 5)
     }):Play()
+
+    task.delay(0.35, function()
+        self:refreshMessageAreaLayout()
+    end)
 end
 
 -- 侧边栏按钮
