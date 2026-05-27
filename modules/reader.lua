@@ -70,34 +70,58 @@ end
 
 Reader.decompilerName, Reader.bytecodeFunc = detectBytecodeReader()
 
--- 检测getscripts函数
-local function detectGetScripts()
-    if getscripts then
-        return getscripts
-    end
-    
-    -- 手动收集所有脚本
-    return function()
-        local scripts = {}
-        local services = {
-            game:GetService("Workspace"),
-            game:GetService("ReplicatedStorage"),
-            game:GetService("ReplicatedFirst"),
-            game:GetService("StarterGui"),
-            game:GetService("StarterPack"),
-            game:GetService("StarterPlayer"),
-            game:GetService("Players")
-        }
-        
-        for _, service in ipairs(services) do
-            for _, obj in ipairs(service:GetDescendants()) do
-                if obj:IsA("LocalScript") or obj:IsA("ModuleScript") or obj:IsA("Script") then
-                    table.insert(scripts, obj)
-                end
+local function collectManualScripts()
+    local scripts = {}
+    local services = {
+        game:GetService("Workspace"),
+        game:GetService("ReplicatedStorage"),
+        game:GetService("ReplicatedFirst"),
+        game:GetService("StarterGui"),
+        game:GetService("StarterPack"),
+        game:GetService("StarterPlayer"),
+        game:GetService("Players")
+    }
+
+    for _, service in ipairs(services) do
+        for _, obj in ipairs(service:GetDescendants()) do
+            if obj:IsA("LocalScript") or obj:IsA("ModuleScript") or obj:IsA("Script") then
+                table.insert(scripts, obj)
             end
         end
-        
-        return scripts
+    end
+
+    return scripts
+end
+
+-- 检测getscripts函数
+local function detectGetScripts()
+    return function()
+        local merged = {}
+        local seen = {}
+
+        if getscripts then
+            local ok, scriptList = pcall(getscripts)
+            if ok and type(scriptList) == "table" then
+                for _, script in ipairs(scriptList) do
+                    if typeof(script) == "Instance" and not seen[script] then
+                        seen[script] = true
+                        table.insert(merged, script)
+                    end
+                end
+            else
+                debugLog("getscripts failed or returned non-table: " .. tostring(scriptList))
+            end
+        end
+
+        for _, script in ipairs(collectManualScripts()) do
+            if not seen[script] then
+                seen[script] = true
+                table.insert(merged, script)
+            end
+        end
+
+        debugLog("getAllScripts merged count=" .. tostring(#merged))
+        return merged
     end
 end
 
