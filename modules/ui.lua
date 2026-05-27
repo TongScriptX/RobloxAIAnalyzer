@@ -14,7 +14,7 @@ UI.loadingDots = 0
 UI.resourceConnections = {}
 UI.resourceRefreshDebounce = false
 UI.resourceAutoRefresh = true
-UI.debugTextLayout = true
+UI.debugTextLayout = false
 
 -- 主题配色
 UI.Theme = {
@@ -1390,7 +1390,7 @@ function UI:addMessage(text, isUser, reasoning)
             bar.BackgroundColor3 = self.Theme.accent
             bar.BorderSizePixel = 0
             createCorner(bar, 2)
-            makeTextLabel(qWrap, block.richText, 12, Enum.Font.GothamItalic,
+            makeTextLabel(qWrap, block.richText, 12, Enum.Font.Gotham,
                 self.Theme.textSecondary, 10)
 
         elseif t == "ul" then
@@ -1531,14 +1531,7 @@ function UI:addMessage(text, isUser, reasoning)
     container.AutomaticSize = Enum.AutomaticSize.Y
     msgFrame.AutomaticSize = Enum.AutomaticSize.Y
 
-    -- 自动滚动到底部
-    task.wait()
-    local listLayout = self.messageArea:FindFirstChild("UIListLayout")
-    if listLayout then
-        local contentHeight = listLayout.AbsoluteContentSize.Y + 12
-        self.messageArea.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
-        self.messageArea.CanvasPosition = Vector2.new(0, math.max(0, contentHeight - self.messageArea.AbsoluteWindowSize.Y))
-    end
+    self:refreshMessageAreaLayoutDeferred(6)
     
     return msgFrame, codeBlocks
 end
