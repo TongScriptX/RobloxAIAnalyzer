@@ -177,12 +177,10 @@ function UI:refreshMessageAreaLayout()
         if child:IsA("Frame") then
             local container = child:FindFirstChild("Container")
             if container and container:IsA("Frame") then
-                container.AutomaticSize = Enum.AutomaticSize.None
-                container.Size = UDim2.new(0, math.max(0, messageWidth - 12), 0, 0)
+                container.Size = UDim2.new(0, math.max(0, messageWidth - 12), 0, container.AbsoluteSize.Y)
             end
 
-            child.AutomaticSize = Enum.AutomaticSize.None
-            child.Size = UDim2.new(0, messageWidth, 0, 0)
+            child.Size = UDim2.new(0, messageWidth, 0, child.AbsoluteSize.Y)
         end
     end
 
@@ -191,25 +189,12 @@ function UI:refreshMessageAreaLayout()
     for _, descendant in ipairs(self.messageArea:GetDescendants()) do
         if descendant:IsA("TextLabel") and descendant.TextWrapped then
             local text = descendant.Text
-            descendant.AutomaticSize = Enum.AutomaticSize.None
-            descendant.Size = UDim2.new(descendant.Size.X.Scale, descendant.Size.X.Offset, 0, 0)
+            descendant.Size = UDim2.new(descendant.Size.X.Scale, descendant.Size.X.Offset, 0, descendant.AbsoluteSize.Y)
             descendant.Text = text
-            descendant.AutomaticSize = Enum.AutomaticSize.Y
         end
     end
 
     task.wait()
-
-    for _, child in ipairs(self.messageArea:GetChildren()) do
-        if child:IsA("Frame") then
-            local container = child:FindFirstChild("Container")
-            if container and container:IsA("Frame") then
-                container.AutomaticSize = Enum.AutomaticSize.Y
-            end
-            child.AutomaticSize = Enum.AutomaticSize.Y
-        end
-    end
-
     task.wait()
 
     local listLayout = self.messageArea:FindFirstChild("UIListLayout")
