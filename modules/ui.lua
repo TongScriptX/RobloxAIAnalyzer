@@ -14,6 +14,7 @@ UI.loadingDots = 0
 UI.resourceConnections = {}
 UI.resourceRefreshDebounce = false
 UI.resourceAutoRefresh = true
+UI.debugTextLayout = true
 
 -- 主题配色
 UI.Theme = {
@@ -90,12 +91,84 @@ function UI:calculateSidebarWidth()
     return math.clamp(sidebarW, config.sidebarMinWidth, config.sidebarMaxWidth)
 end
 
+local function formatUDim2Value(value)
+    return string.format("{%.3f,%d | %.3f,%d}", value.X.Scale, value.X.Offset, value.Y.Scale, value.Y.Offset)
+end
+
+function UI:logTextLayoutState(stage)
+    if not self.debugTextLayout or not self.messageArea then
+        return
+    end
+
+    local listLayout = self.messageArea:FindFirstChild("UIListLayout")
+    print(string.format(
+        "[UI DEBUG] %s | messageArea abs=(%d,%d) canvas=(%d,%d) window=(%d,%d) canvasPos=(%d,%d) contentY=%s",
+        tostring(stage),
+        self.messageArea.AbsoluteSize.X,
+        self.messageArea.AbsoluteSize.Y,
+        self.messageArea.CanvasSize.X.Offset,
+        self.messageArea.CanvasSize.Y.Offset,
+        self.messageArea.AbsoluteWindowSize.X,
+        self.messageArea.AbsoluteWindowSize.Y,
+        self.messageArea.CanvasPosition.X,
+        self.messageArea.CanvasPosition.Y,
+        listLayout and tostring(listLayout.AbsoluteContentSize.Y) or "nil"
+    ))
+
+    local inspected = 0
+    for _, child in ipairs(self.messageArea:GetChildren()) do
+        if child:IsA("Frame") then
+            inspected = inspected + 1
+            if inspected > 3 then
+                break
+            end
+
+            local container = child:FindFirstChild("Container")
+            print(string.format(
+                "[UI DEBUG]   msg[%d] size=%s abs=(%d,%d) auto=%s containerAbs=%s",
+                inspected,
+                formatUDim2Value(child.Size),
+                child.AbsoluteSize.X,
+                child.AbsoluteSize.Y,
+                tostring(child.AutomaticSize),
+                container and string.format("(%d,%d)", container.AbsoluteSize.X, container.AbsoluteSize.Y) or "nil"
+            ))
+
+            if container then
+                local textLogged = 0
+                for _, desc in ipairs(container:GetDescendants()) do
+                    if desc:IsA("TextLabel") and desc.TextWrapped then
+                        textLogged = textLogged + 1
+                        print(string.format(
+                            "[UI DEBUG]      text[%d] abs=(%d,%d) size=%s textBounds=(%d,%d) auto=%s text=%s",
+                            textLogged,
+                            desc.AbsoluteSize.X,
+                            desc.AbsoluteSize.Y,
+                            formatUDim2Value(desc.Size),
+                            desc.TextBounds.X,
+                            desc.TextBounds.Y,
+                            tostring(desc.AutomaticSize),
+                            tostring(desc.Text):sub(1, 40):gsub("\n", "\\n")
+                        ))
+                        if textLogged >= 3 then
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 function UI:refreshMessageAreaLayout()
     if not self.messageArea then
         return
     end
 
+    self:logTextLayoutState("before refresh")
+
     if self.messageArea.AbsoluteSize.X <= 20 then
+        self:logTextLayoutState("skip refresh narrow width")
         return
     end
 
@@ -145,13 +218,24 @@ function UI:refreshMessageAreaLayout()
         self.messageArea.CanvasSize = UDim2.new(0, 0, 0, contentHeight)
         self.messageArea.CanvasPosition = Vector2.new(0, math.max(0, contentHeight - self.messageArea.AbsoluteWindowSize.Y))
     end
+
+    self:logTextLayoutState("after refresh")
 end
 
 function UI:refreshMessageAreaLayoutDeferred(maxAttempts)
     maxAttempts = maxAttempts or 12
 
     task.spawn(function()
-        for _ = 1, maxAttempts do
+        for attempt = 1, maxAttempts do
+            if self.debugTextLayout and self.messageArea then
+                print(string.format(
+                    "[UI DEBUG] deferred attempt=%d visible=%s mainVisible=%s messageAreaAbsX=%s",
+                    attempt,
+                    tostring(self.messageArea.Visible),
+                    tostring(self.mainContent and self.mainContent.Visible),
+                    tostring(self.messageArea.AbsoluteSize.X)
+                ))
+            end
             if self.messageArea and self.mainContent and self.mainContent.Visible and self.messageArea.AbsoluteSize.X > 20 then
                 self:refreshMessageAreaLayout()
                 return
@@ -458,6 +542,15 @@ function UI:toggleMinimize()
         -- 展开完成后恢复内容并刷新消息区域布局
         expandTween.Completed:Connect(function()
             if self.mainContent then self.mainContent.Visible = true end
+            if self.debugTextLayout then
+                print(string.format(
+                    "[UI DEBUG] expand completed | mainFrame abs=(%d,%d) mainContent abs=(%d,%d)",
+                    self.mainFrame.AbsoluteSize.X,
+                    self.mainFrame.AbsoluteSize.Y,
+                    self.mainContent and self.mainContent.AbsoluteSize.X or -1,
+                    self.mainContent and self.mainContent.AbsoluteSize.Y or -1
+                ))
+            end
             if self.messageArea then
                 self:refreshMessageAreaLayoutDeferred()
             end
