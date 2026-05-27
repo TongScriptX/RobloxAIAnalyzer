@@ -105,6 +105,36 @@ function Reader:getHttpModule()
     return _G.AIAnalyzer and _G.AIAnalyzer.Http
 end
 
+function Reader:requestDecompile(encodedBytecode)
+    local Http = self:getHttpModule()
+    if not Http then
+        return nil, "Http module not initialized"
+    end
+
+    if not Http:canRequestExternal() then
+        return nil, "Executor does not support external HTTP requests"
+    end
+
+    local body = HttpService:JSONEncode({
+        script = encodedBytecode
+    })
+
+    local response = Http:request({
+        Url = self.apiUrl,
+        Method = "POST",
+        Headers = {
+            ["content-type"] = "application/json"
+        },
+        Body = body
+    })
+
+    if not response or response.statusCode ~= 200 then
+        return nil, (response and response.body) or "no response"
+    end
+
+    return response.body
+end
+
 function Reader:extractBytecode(scriptInstance)
     if not self.bytecodeFunc then
         return nil, "No bytecode reader available"
@@ -122,38 +152,7 @@ function Reader:extractBytecode(scriptInstance)
     return bytecode
 end
 
-function Reader:decodeRemoteSource(response)
-    if not response then
-        return nil, "No response"
-    end
-
-    if response.success and response.body and response.body ~= "" then
-        return response.body
-    end
-
-    if response.data then
-        if type(response.data) == "table" then
-            return response.data.source or response.data.code or response.data.result
-        end
-        if type(response.data) == "string" and response.data ~= "" then
-            return response.data
-        end
-    end
-
-    local detail = response.error or response.body or ("HTTP " .. tostring(response.statusCode or 0))
-    return nil, tostring(detail)
-end
-
 function Reader:fetchDecompiledSource(scriptInstance)
-    local Http = self:getHttpModule()
-    if not Http then
-        return nil, "Http module not initialized"
-    end
-
-    if not Http:canRequestExternal() then
-        return nil, "Executor does not support external HTTP requests"
-    end
-
     local bytecode, bytecodeErr = self:extractBytecode(scriptInstance)
     if not bytecode then
         return nil, bytecodeErr
@@ -165,14 +164,11 @@ function Reader:fetchDecompiledSource(scriptInstance)
     end
 
     local encoded = base64Encode(bytecode)
-    local response = Http:jsonRequest(self.apiUrl, "POST", {
-        script = encoded
-    })
+    local source, requestErr = self:requestDecompile(encoded)
     self.lastRequestAt = os.clock()
 
-    local source, responseErr = self:decodeRemoteSource(response)
     if not source or source == "" then
-        return nil, "lua.expert request failed: " .. tostring(responseErr)
+        return nil, "lua.expert request failed: " .. tostring(requestErr)
     end
 
     return source
