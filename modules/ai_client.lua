@@ -9,6 +9,62 @@ local function getDeps()
     return deps.Config, deps.Http, deps.Tools, deps.Scanner, deps.Reader, deps.ContextManager, deps.UI, deps.Executor
 end
 
+local function trim(value)
+    return tostring(value or ""):match("^%s*(.-)%s*$")
+end
+
+local function startsWith(str, prefix)
+    return str:sub(1, #prefix) == prefix
+end
+
+local function buildRequestUrl(provider)
+    local baseUrl = trim(provider.baseUrl)
+    local endpoint = trim(provider.endpoint or "/v1/chat/completions")
+
+    if baseUrl == "" then
+        return endpoint
+    end
+
+    if startsWith(baseUrl, "http://") == false and startsWith(baseUrl, "https://") == false then
+        baseUrl = "https://" .. baseUrl
+    end
+
+    if baseUrl:find("/chat/completions", 1, true) or baseUrl:find("/responses", 1, true) then
+        return baseUrl
+    end
+
+    if endpoint == "" then
+        return baseUrl
+    end
+
+    if baseUrl:sub(-1) == "/" then
+        baseUrl = baseUrl:sub(1, -2)
+    end
+    if endpoint:sub(1, 1) ~= "/" then
+        endpoint = "/" .. endpoint
+    end
+
+    return baseUrl .. endpoint
+end
+
+local function formatRequestError(response)
+    if not response then
+        return "Request failed: no response"
+    end
+
+    local status = tostring(response.statusCode or 0)
+    local detail = response.error or response.body
+
+    if type(detail) == "string" and detail ~= "" then
+        if #detail > 400 then
+            detail = detail:sub(1, 400) .. "..."
+        end
+        return "HTTP " .. status .. ": " .. detail
+    end
+
+    return "HTTP " .. status
+end
+
 -- 创建请求体
 local function createRequestBody(provider, messages, options, tools)
     local Config = getDeps()
@@ -23,7 +79,7 @@ local function createRequestBody(provider, messages, options, tools)
     }
     
     -- 添加工具定义
-    if tools and #tools > 0 then
+    if options.includeTools ~= false and tools and #tools > 0 then
         body.tools = tools
         body.tool_choice = "auto"
     end
@@ -89,14 +145,14 @@ function AIClient:chat(userMessage, systemPrompt, options)
     -- 获取工具定义
     local tools = Tools and Tools.definitions
     
-    local url = provider.baseUrl .. provider.endpoint
+    local url = buildRequestUrl(provider)
     local body = createRequestBody(provider, messages, options, tools)
     local headers = createHeaders(provider)
     
     local response = Http:jsonRequest(url, "POST", body, headers)
     
     if not response.success then
-        return nil, response.error or "Request failed: " .. tostring(response.statusCode)
+        return nil, formatRequestError(response)
     end
     
     if not response.data then
@@ -326,7 +382,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     contextStatus = ctx and ctx:getStatus()
                 }
             end
-            return nil, "Tool execution completed but follow-up request failed"
+            return nil, "Tool execution completed but follow-up request failed: " .. formatRequestError(followUpResponse)
         end
         
         if not followUpResponse.data then
@@ -727,7 +783,11 @@ function AIClient:testConnection()
         return false, "API Key not configured"
     end
     
-    local result, err = self:chat("Hello, respond with 'OK' to confirm connection.")
+    local result, err = self:chat("Hello, respond with 'OK' to confirm connection.", nil, {
+        includeTools = false,
+        maxTokens = 32,
+        temperature = 0
+    })
     
     if result then
         return true, "Connection successful to " .. provider.name

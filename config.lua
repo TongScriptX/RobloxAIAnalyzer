@@ -3,6 +3,10 @@ local Config = {}
 
 local HttpService = game:GetService("HttpService")
 
+local function trim(value)
+    return tostring(value or ""):match("^%s*(.-)%s*$")
+end
+
 -- AI providers
 Config.Providers = {
     Custom = {
@@ -95,7 +99,7 @@ end
 
 function Config:setBaseUrl(name, url)
     if self.Providers[name] then
-        self.Providers[name].baseUrl = url
+        self.Providers[name].baseUrl = trim(url)
         return true
     end
     return false
@@ -103,8 +107,9 @@ end
 
 function Config:setModel(name, model)
     if self.Providers[name] then
-        self.Providers[name].defaultModel = model
-        self.Providers[name].models = {model}
+        local cleanModel = trim(model)
+        self.Providers[name].defaultModel = cleanModel
+        self.Providers[name].models = {cleanModel}
         return true
     end
     return false
