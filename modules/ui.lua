@@ -4104,15 +4104,16 @@ function UI:showContextMenu(node, position)
     -- 如果是脚本类型，添加查看源码选项
     if node.className and node.className:find("Script") and node.instance then
         table.insert(menuItems, {text = "👁️ 查看源码", action = function()
-            if decompile then
-                local success, source = pcall(decompile, node.instance)
-                if success and source then
-                    self:addMessage("```lua\n" .. source .. "\n```", false)
+            local Reader = _G.AIAnalyzer and _G.AIAnalyzer.Reader
+            if Reader and Reader:canDecompile() then
+                local scriptData, err = Reader:readScript(node.instance)
+                if scriptData and scriptData.source then
+                    self:addMessage("```lua\n" .. scriptData.source .. "\n```", false)
                 else
-                    self:addMessage("❌ 无法获取源码: " .. tostring(source), false)
+                    self:addMessage("❌ 无法获取源码: " .. tostring(err), false)
                 end
             else
-                self:addMessage("⚠️ 当前执行器不支持反编译", false)
+                self:addMessage("⚠️ 当前环境不支持通过 lua.expert 读取源码", false)
             end
         end})
     end

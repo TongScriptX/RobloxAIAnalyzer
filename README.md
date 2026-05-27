@@ -16,3 +16,10 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/TongScriptX/RobloxAIA
 ```
 
 配置会自动保存到本地。
+
+## 脚本读取
+
+游戏脚本读取不再使用执行器内置 `decompile`。当前实现会通过 `getscriptbytecode` 读取字节码，并调用 `https://api.lua.expert/decompile` 获取反编译结果，因此需要：
+
+- 执行器支持 `getscriptbytecode`
+- 执行器支持外部 HTTP 请求

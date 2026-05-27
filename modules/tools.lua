@@ -610,7 +610,7 @@ function Tools:readScript(args, Reader, Scanner, Executor)
     
     -- 游戏内脚本读取
     if not Reader or not Reader:canDecompile() then
-        return {error = "Script reading not available (need decompile support)"}
+        return {error = "Script reading not available (need getscriptbytecode + external HTTP access)"}
     end
     
     -- 先查找脚本
@@ -787,7 +787,7 @@ function Tools:searchInScript(args, Reader, Scanner)
     end
     
     if not Reader or not Reader:canDecompile() then
-        return {error = "Script reading not available (need decompile support)"}
+        return {error = "Script reading not available (need getscriptbytecode + external HTTP access)"}
     end
     
     if not Scanner or not Scanner.cache then

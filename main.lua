@@ -135,7 +135,7 @@ local function detectExecutor()
         info.canExecute = true
     end
     
-    if decompile or (syn and syn.decompile) then
+    if getscriptbytecode or (syn and syn.getscriptbytecode) then
         info.canDecompile = true
     end
     

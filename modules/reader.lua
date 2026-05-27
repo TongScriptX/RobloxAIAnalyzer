@@ -1,32 +1,26 @@
 -- Reader模块 - 脚本读取
 local Reader = {}
 
--- 检测反编译函数
-local function detectDecompiler()
-    if decompile then
-        return "decompile", decompile
+local HttpService = game:GetService("HttpService")
+
+Reader.apiUrl = "https://api.lua.expert/decompile"
+Reader.minRequestInterval = 0.6
+Reader.lastRequestAt = 0
+
+-- 检测字节码读取函数
+local function detectBytecodeReader()
+    if getscriptbytecode then
+        return "getscriptbytecode", getscriptbytecode
     end
-    
-    if getscriptcode then
-        return "getscriptcode", getscriptcode
+
+    if syn and syn.getscriptbytecode then
+        return "syn.getscriptbytecode", syn.getscriptbytecode
     end
-    
-    if getscriptfunction then
-        return "getscriptfunction", function(script)
-            local success, result = pcall(function()
-                local func = getscriptfunction(script)
-                if func then
-                    return debug.getinfo(func, "s").source or "-- Unable to read source"
-                end
-            end)
-            return success and result or "-- Decompile not available"
-        end
-    end
-    
+
     return nil, nil
 end
 
-Reader.decompilerName, Reader.decompileFunc = detectDecompiler()
+Reader.decompilerName, Reader.bytecodeFunc = detectBytecodeReader()
 
 -- 检测getscripts函数
 local function detectGetScripts()
@@ -70,6 +64,83 @@ function Reader:getAllScripts()
     return {}
 end
 
+function Reader:getHttpModule()
+    return _G.AIAnalyzer and _G.AIAnalyzer.Http
+end
+
+function Reader:extractBytecode(scriptInstance)
+    if not self.bytecodeFunc then
+        return nil, "No bytecode reader available"
+    end
+
+    local success, bytecode = pcall(self.bytecodeFunc, scriptInstance)
+    if not success then
+        return nil, "Failed to read bytecode: " .. tostring(bytecode)
+    end
+
+    if not bytecode or bytecode == "" then
+        return nil, "Empty bytecode"
+    end
+
+    return bytecode
+end
+
+function Reader:decodeRemoteSource(response)
+    if not response then
+        return nil, "No response"
+    end
+
+    if response.success and response.body and response.body ~= "" then
+        return response.body
+    end
+
+    if response.data then
+        if type(response.data) == "table" then
+            return response.data.source or response.data.code or response.data.result
+        end
+        if type(response.data) == "string" and response.data ~= "" then
+            return response.data
+        end
+    end
+
+    local detail = response.error or response.body or ("HTTP " .. tostring(response.statusCode or 0))
+    return nil, tostring(detail)
+end
+
+function Reader:fetchDecompiledSource(scriptInstance)
+    local Http = self:getHttpModule()
+    if not Http then
+        return nil, "Http module not initialized"
+    end
+
+    if not Http:canRequestExternal() then
+        return nil, "Executor does not support external HTTP requests"
+    end
+
+    local bytecode, bytecodeErr = self:extractBytecode(scriptInstance)
+    if not bytecode then
+        return nil, bytecodeErr
+    end
+
+    local elapsed = os.clock() - self.lastRequestAt
+    if elapsed < self.minRequestInterval then
+        task.wait(self.minRequestInterval - elapsed)
+    end
+
+    local encoded = HttpService:Base64Encode(bytecode)
+    local response = Http:jsonRequest(self.apiUrl, "POST", {
+        script = encoded
+    })
+    self.lastRequestAt = os.clock()
+
+    local source, responseErr = self:decodeRemoteSource(response)
+    if not source or source == "" then
+        return nil, "lua.expert request failed: " .. tostring(responseErr)
+    end
+
+    return source
+end
+
 function Reader:readScript(scriptInstance)
     if not scriptInstance then
         return nil, "Invalid script instance"
@@ -79,14 +150,9 @@ function Reader:readScript(scriptInstance)
     if self.cache[cacheKey] then
         return self.cache[cacheKey]
     end
-    
-    if not self.decompileFunc then
-        return nil, "No decompiler available"
-    end
-    
-    local success, source = pcall(self.decompileFunc, scriptInstance)
-    
-    if success and source and #source > 0 then
+
+    local source, err = self:fetchDecompiledSource(scriptInstance)
+    if source and #source > 0 then
         local result = {
             name = scriptInstance.Name,
             className = scriptInstance.ClassName,
@@ -98,8 +164,8 @@ function Reader:readScript(scriptInstance)
         self.cache[cacheKey] = result
         return result
     end
-    
-    return nil, "Failed to decompile: " .. tostring(source)
+
+    return nil, err or "Failed to decompile script"
 end
 
 -- 获取脚本路径
@@ -243,15 +309,21 @@ end
 
 -- 检查是否支持反编译
 function Reader:canDecompile()
-    return self.decompileFunc ~= nil
+    local Http = self:getHttpModule()
+    return self.bytecodeFunc ~= nil and Http ~= nil and Http:canRequestExternal()
 end
 
 -- 获取环境信息
 function Reader:getEnvInfo()
+    local Http = self:getHttpModule()
     return {
-        hasDecompiler = self.decompileFunc ~= nil,
+        hasDecompiler = self:canDecompile(),
         decompilerName = self.decompilerName or "None",
-        hasGetScripts = self.getScriptsFunc ~= nil
+        hasGetScripts = self.getScriptsFunc ~= nil,
+        hasBytecodeReader = self.bytecodeFunc ~= nil,
+        usesExternalDecompiler = true,
+        decompilerApiUrl = self.apiUrl,
+        hasExternalHttp = Http and Http:canRequestExternal() or false
     }
 end
 
