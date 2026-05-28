@@ -105,6 +105,77 @@ local function createHeaders(provider)
     }
 end
 
+local TOOL_DISPLAY_NAMES = {
+    ["scan_resources"] = "扫描游戏资源",
+    ["get_resource_info"] = "获取资源信息",
+    ["read_script"] = "读取脚本",
+    ["save_script"] = "保存脚本",
+    ["list_remotes"] = "列出 Remotes",
+    ["get_remote_info"] = "获取 Remote 信息",
+    ["analyze_remote_usage"] = "分析 Remote 使用",
+    ["call_remote"] = "调用 Remote",
+    ["remote_interceptor"] = "Remote 拦截",
+    ["search_in_script"] = "搜索脚本内容",
+    ["run_script"] = "执行脚本",
+    ["get_game_info"] = "获取游戏信息",
+    ["list_instances"] = "列出实例",
+    ["get_console_output"] = "读取控制台日志"
+}
+
+local function buildToolStatusMessage(toolName, toolArgs, result)
+    local displayName = TOOL_DISPLAY_NAMES[toolName] or toolName
+    local statusMsg = "🔧 **" .. displayName .. "**"
+
+    if toolArgs then
+        if toolArgs.path then
+            statusMsg = statusMsg .. "\n📁 路径: `" .. tostring(toolArgs.path) .. "`"
+        end
+        if toolArgs.name then
+            statusMsg = statusMsg .. "\n📛 名称: `" .. tostring(toolArgs.name) .. "`"
+        end
+        if toolArgs.output_path then
+            statusMsg = statusMsg .. "\n💾 保存到: `" .. tostring(toolArgs.output_path) .. "`"
+        end
+        if toolArgs.query then
+            statusMsg = statusMsg .. "\n🔍 查询: `" .. tostring(toolArgs.query):sub(1, 50) .. "`"
+        end
+        if toolArgs.pattern then
+            statusMsg = statusMsg .. "\n🔎 模式: `" .. tostring(toolArgs.pattern) .. "`"
+        end
+        if toolArgs.text then
+            statusMsg = statusMsg .. "\n🔎 文本: `" .. tostring(toolArgs.text):sub(1, 50) .. "`"
+        end
+        if toolArgs.action then
+            statusMsg = statusMsg .. "\n🛠️ 操作: `" .. tostring(toolArgs.action) .. "`"
+        end
+        if toolArgs.mode then
+            statusMsg = statusMsg .. "\n⚙️ 模式: `" .. tostring(toolArgs.mode) .. "`"
+        end
+        if toolArgs.start_line or toolArgs.end_line then
+            statusMsg = statusMsg .. "\n📍 行范围: " .. tostring(toolArgs.start_line or 1) .. "-" .. tostring(toolArgs.end_line or "末尾")
+        end
+        if toolArgs.description then
+            statusMsg = statusMsg .. "\n📝 描述: " .. tostring(toolArgs.description)
+        end
+    end
+
+    if result then
+        if result.error then
+            statusMsg = statusMsg .. "\n❌ 错误: " .. tostring(result.error)
+        elseif result.count then
+            statusMsg = statusMsg .. "\n✅ 找到 " .. tostring(result.count) .. " 个结果"
+        elseif result.totalMatches then
+            statusMsg = statusMsg .. "\n✅ 匹配 " .. tostring(result.totalMatches) .. " 处"
+        elseif result.lines then
+            statusMsg = statusMsg .. "\n✅ 共 " .. tostring(result.lines) .. " 行"
+        elseif result.success then
+            statusMsg = statusMsg .. "\n✅ 执行成功"
+        end
+    end
+
+    return displayName, statusMsg
+end
+
 function AIClient:generateSessionTitle(messages)
     local Config, Http = getDeps()
     if not Config then
@@ -283,6 +354,39 @@ function AIClient:chat(userMessage, systemPrompt, options)
 
     while assistantMessage.tool_calls and #assistantMessage.tool_calls > 0 and iteration < maxIterations do
         iteration = iteration + 1
+        local uiToolGroups = {}
+        local function queueToolGroup(toolName, toolArgs, result)
+            if not UI then
+                return
+            end
+            local displayName, statusMsg = buildToolStatusMessage(toolName, toolArgs, result)
+            local group = uiToolGroups[toolName]
+            if not group then
+                group = {
+                    displayName = displayName,
+                    count = 0,
+                    items = {}
+                }
+                uiToolGroups[toolName] = group
+            end
+            group.count = group.count + 1
+            table.insert(group.items, string.format("**第 %d 次**\n%s", group.count, statusMsg))
+        end
+        local function flushToolGroups()
+            if not UI then
+                return
+            end
+            for _, toolCall in ipairs(assistantMessage.tool_calls or {}) do
+                local group = uiToolGroups[toolCall["function"].name]
+                if group and not group.rendered then
+                    group.rendered = true
+                    UI:addSystemMessage(table.concat(group.items, "\n\n---\n\n"), {
+                        collapsible = true,
+                        title = string.format("%s x%d", group.displayName, group.count)
+                    })
+                end
+            end
+        end
 
         -- 添加助手消息到历史
         if ctx then
@@ -365,6 +469,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
                         end
                     end
                 end
+                queueToolGroup(toolName, toolArgs, result)
+                flushToolGroups()
                 self._needsUserConfirmation = true
                 return {
                     needsConfirmation = true,
@@ -382,65 +488,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
             lastToolResults[toolName] = result
             
             print("[AI CLI] 工具结果: " .. resultText:sub(1, 100))
-            
-            -- 在对话中显示工具执行状态
-            if UI then
-                local toolDisplayNames = {
-                    ["scan_resources"] = "扫描游戏资源",
-                    ["get_resource_info"] = "获取资源信息",
-                    ["read_script"] = "读取脚本",
-                    ["save_script"] = "保存脚本",
-                    ["search_in_script"] = "搜索脚本内容",
-                    ["run_script"] = "执行脚本",
-                    ["get_game_info"] = "获取游戏信息",
-                    ["list_instances"] = "列出实例"
-                }
-                local displayName = toolDisplayNames[toolName] or toolName
-                
-                -- 构建状态消息
-                local statusMsg = "🔧 **" .. displayName .. "**"
-                
-                -- 添加参数信息
-                if toolArgs then
-                    if toolArgs.path then
-                        statusMsg = statusMsg .. "\n📁 路径: `" .. tostring(toolArgs.path) .. "`"
-                    end
-                    if toolArgs.name then
-                        statusMsg = statusMsg .. "\n📛 名称: `" .. tostring(toolArgs.name) .. "`"
-                    end
-                    if toolArgs.output_path then
-                        statusMsg = statusMsg .. "\n💾 保存到: `" .. tostring(toolArgs.output_path) .. "`"
-                    end
-                    if toolArgs.query then
-                        statusMsg = statusMsg .. "\n🔍 查询: `" .. tostring(toolArgs.query):sub(1, 50) .. "`"
-                    end
-                    if toolArgs.pattern then
-                        statusMsg = statusMsg .. "\n🔎 模式: `" .. tostring(toolArgs.pattern) .. "`"
-                    end
-                    if toolArgs.start_line or toolArgs.end_line then
-                        statusMsg = statusMsg .. "\n📍 行范围: " .. tostring(toolArgs.start_line or 1) .. "-" .. tostring(toolArgs.end_line or "末尾")
-                    end
-                    if toolArgs.description then
-                        statusMsg = statusMsg .. "\n📝 描述: " .. tostring(toolArgs.description)
-                    end
-                end
-                
-                -- 添加结果摘要
-                if result.error then
-                    statusMsg = statusMsg .. "\n❌ 错误: " .. tostring(result.error)
-                elseif result.count then
-                    statusMsg = statusMsg .. "\n✅ 找到 " .. tostring(result.count) .. " 个结果"
-                elseif result.length then
-                    statusMsg = statusMsg .. "\n✅ 读取 " .. tostring(result.length) .. " 行"
-                elseif result.success then
-                    statusMsg = statusMsg .. "\n✅ 执行成功"
-                end
-                
-                UI:addSystemMessage(statusMsg, {
-                    collapsible = true,
-                    title = "工具调用"
-                })
-            end
+            queueToolGroup(toolName, toolArgs, result)
             
             -- 添加工具结果到消息
             if ctx then
@@ -453,6 +501,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
                 })
             end
         end
+        flushToolGroups()
         
         -- 再次请求AI处理工具结果
         local followUpMessages
