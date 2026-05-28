@@ -202,16 +202,80 @@ local function isArray(tbl)
     return count == maxIndex
 end
 
+local function sanitizeUTF8String(value)
+    local out = table.create and table.create(#value, "") or {}
+    local i = 1
+    local len = #value
+
+    local function appendByteRange(startIdx, count)
+        out[#out + 1] = value:sub(startIdx, startIdx + count - 1)
+    end
+
+    while i <= len do
+        local b1 = value:byte(i)
+        if not b1 then
+            break
+        end
+
+        if b1 < 32 then
+            if b1 == 9 or b1 == 10 or b1 == 13 then
+                appendByteRange(i, 1)
+            end
+            i = i + 1
+        elseif b1 < 128 then
+            appendByteRange(i, 1)
+            i = i + 1
+        else
+            local b2 = value:byte(i + 1)
+            local b3 = value:byte(i + 2)
+            local b4 = value:byte(i + 3)
+
+            if b1 >= 194 and b1 <= 223 and b2 and b2 >= 128 and b2 <= 191 then
+                appendByteRange(i, 2)
+                i = i + 2
+            elseif b1 == 224 and b2 and b2 >= 160 and b2 <= 191 and b3 and b3 >= 128 and b3 <= 191 then
+                appendByteRange(i, 3)
+                i = i + 3
+            elseif ((b1 >= 225 and b1 <= 236) or (b1 >= 238 and b1 <= 239))
+                and b2 and b2 >= 128 and b2 <= 191
+                and b3 and b3 >= 128 and b3 <= 191 then
+                appendByteRange(i, 3)
+                i = i + 3
+            elseif b1 == 237 and b2 and b2 >= 128 and b2 <= 159 and b3 and b3 >= 128 and b3 <= 191 then
+                appendByteRange(i, 3)
+                i = i + 3
+            elseif b1 == 240 and b2 and b2 >= 144 and b2 <= 191
+                and b3 and b3 >= 128 and b3 <= 191
+                and b4 and b4 >= 128 and b4 <= 191 then
+                appendByteRange(i, 4)
+                i = i + 4
+            elseif b1 >= 241 and b1 <= 243
+                and b2 and b2 >= 128 and b2 <= 191
+                and b3 and b3 >= 128 and b3 <= 191
+                and b4 and b4 >= 128 and b4 <= 191 then
+                appendByteRange(i, 4)
+                i = i + 4
+            elseif b1 == 244 and b2 and b2 >= 128 and b2 <= 143
+                and b3 and b3 >= 128 and b3 <= 191
+                and b4 and b4 >= 128 and b4 <= 191 then
+                appendByteRange(i, 4)
+                i = i + 4
+            else
+                i = i + 1
+            end
+        end
+    end
+
+    return table.concat(out)
+end
+
 local function sanitizeForJSON(v, depth)
     depth = depth or 0
     if depth > 20 then return "[too deep]" end
     local t = type(v)
     if t == "string" then
-        -- 去除 JSONEncode 易失败的控制字符，保留常见换行/制表
         local ok, cleaned = pcall(function()
-            local s = v
-            s = s:gsub("[%z\1-\8\11\12\14-\31]", "")
-            return s
+            return sanitizeUTF8String(v)
         end)
         return ok and cleaned or tostring(v)
     elseif t == "number" then
