@@ -97,6 +97,72 @@ local function createRequestBody(provider, messages, options, tools)
     return body
 end
 
+local function pickToolsByName(definitions, names)
+    local wanted = {}
+    local selected = {}
+    for _, name in ipairs(names or {}) do
+        if name and not wanted[name] then
+            wanted[name] = true
+        end
+    end
+    for _, def in ipairs(definitions or {}) do
+        local fn = def["function"]
+        if fn and wanted[fn.name] then
+            selected[#selected + 1] = def
+        end
+    end
+    return selected
+end
+
+local function selectToolNamesForQuery(query)
+    local text = tostring(query or ""):lower()
+    local names = {
+        "search_resources",
+        "read_script",
+        "search_in_script",
+    }
+
+    local function add(name)
+        for _, existing in ipairs(names) do
+            if existing == name then
+                return
+            end
+        end
+        names[#names + 1] = name
+    end
+
+    if text:find("remote", 1, true) or text:find("远程", 1, true) then
+        add("list_remotes")
+        add("get_remote_info")
+        add("analyze_remote_usage")
+        add("call_remote")
+        add("remote_interceptor")
+    end
+    if text:find("ui", 1, true) or text:find("hud", 1, true) or text:find("gui", 1, true) or text:find("界面", 1, true) then
+        add("inspect_ui_resources")
+    end
+    if text:find("folder", 1, true) or text:find("目录", 1, true) or text:find("文件夹", 1, true) or text:find("结构", 1, true) then
+        add("inspect_resource_folder")
+    end
+    if text:find("保存", 1, true) or text:find("脚本库", 1, true) or text:find("临时脚本", 1, true) or text:find("reuse", 1, true) or text:find("cache", 1, true) then
+        add("list_saved_scripts")
+        add("get_saved_script")
+        add("save_temp_script")
+    end
+    if text:find("执行", 1, true) or text:find("运行", 1, true) or text:find("调用", 1, true) then
+        add("run_script")
+        add("run_saved_script")
+    end
+    if text:find("控制台", 1, true) or text:find("日志", 1, true) or text:find("console", 1, true) then
+        add("get_console_output")
+    end
+    if text:find("列出", 1, true) or text:find("全部", 1, true) or text:find("资源", 1, true) then
+        add("list_resources")
+    end
+
+    return names
+end
+
 -- 创建请求头
 local function createHeaders(provider)
     return {
@@ -110,11 +176,17 @@ local TOOL_DISPLAY_NAMES = {
     ["get_resource_info"] = "获取资源信息",
     ["read_script"] = "读取脚本",
     ["save_script"] = "保存脚本",
+    ["list_saved_scripts"] = "列出临时脚本",
+    ["get_saved_script"] = "读取临时脚本",
+    ["save_temp_script"] = "保存临时脚本",
+    ["run_saved_script"] = "执行临时脚本",
     ["list_remotes"] = "列出 Remotes",
     ["get_remote_info"] = "获取 Remote 信息",
     ["analyze_remote_usage"] = "分析 Remote 使用",
     ["call_remote"] = "调用 Remote",
     ["remote_interceptor"] = "Remote 拦截",
+    ["inspect_resource_folder"] = "查看文件夹结构",
+    ["inspect_ui_resources"] = "查看 UI/HUD 资源",
     ["search_in_script"] = "搜索脚本内容",
     ["run_script"] = "执行脚本",
     ["get_game_info"] = "获取游戏信息",
@@ -286,7 +358,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
         ctx:addUserMessage(userMessage)
         -- 获取包含历史的消息列表
         messages = ctx:getMessagesForAPI(systemPrompt, {
-            includeReasoningContent = isDeepSeek
+            includeReasoningContent = isDeepSeek,
+            pruneToolMessages = true,
+            keepRecentToolMessages = 4
         })
     else
         -- 无上下文管理，单次对话
@@ -298,7 +372,8 @@ function AIClient:chat(userMessage, systemPrompt, options)
     end
     
     -- 获取工具定义
-    local tools = Tools and Tools.definitions
+    local toolNames = options.selectedToolNames or selectToolNamesForQuery(userMessage)
+    local tools = Tools and pickToolsByName(Tools.definitions, toolNames)
     
     local url = buildRequestUrl(provider)
     local body = createRequestBody(provider, messages, options, tools)
@@ -416,11 +491,17 @@ function AIClient:chat(userMessage, systemPrompt, options)
                     ["get_resource_info"] = "📦 正在获取资源信息...",
                     ["read_script"] = "📄 正在读取脚本...",
                     ["save_script"] = "💾 正在保存脚本...",
+                    ["list_saved_scripts"] = "🗃️ 正在列出临时脚本...",
+                    ["get_saved_script"] = "📄 正在读取临时脚本...",
+                    ["save_temp_script"] = "💾 正在保存临时脚本...",
+                    ["run_saved_script"] = "⚡ 正在执行临时脚本...",
                     ["list_remotes"] = "📡 正在列出 Remotes...",
                     ["get_remote_info"] = "📡 正在获取 Remote 信息...",
                     ["analyze_remote_usage"] = "🧭 正在分析 Remote 使用...",
                     ["call_remote"] = "⚡ 正在调用 Remote...",
                     ["remote_interceptor"] = "🛡️ 正在更新 Remote 拦截...",
+                    ["inspect_resource_folder"] = "🗂️ 正在查看文件夹结构...",
+                    ["inspect_ui_resources"] = "🖥️ 正在查看 UI/HUD 资源...",
                     ["search_in_script"] = "🔍 正在搜索脚本内容...",
                     ["run_script"] = "⚡ 正在执行脚本...",
                     ["get_game_info"] = "🎮 正在获取游戏信息...",
@@ -457,7 +538,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
                 -- 把当前 tool 结果存入上下文
                 local resultText = Tools and Tools:formatResult(result) or HttpService:JSONEncode(result)
                 if ctx then
-                    ctx:addToolResult(toolCall.id, resultText)
+                    ctx:addToolResult(toolCall.id, resultText, toolName)
                     -- 为本次迭代中尚未处理的其余 tool_calls 补充占位结果，
                     -- 保证 assistant tool_calls 与 tool 消息一一对应，防止 JSONEncode 失败
                     local foundCurrent = false
@@ -465,7 +546,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
                         if otherCall.id == toolCall.id then
                             foundCurrent = true
                         elseif foundCurrent then
-                            ctx:addToolResult(otherCall.id, "[pending: awaiting user confirmation]")
+                            ctx:addToolResult(otherCall.id, "[pending: awaiting user confirmation]", otherCall["function"] and otherCall["function"].name or "tool")
                         end
                     end
                 end
@@ -492,7 +573,7 @@ function AIClient:chat(userMessage, systemPrompt, options)
             
             -- 添加工具结果到消息
             if ctx then
-                ctx:addToolResult(toolCall.id, resultText)
+                ctx:addToolResult(toolCall.id, resultText, toolName)
             else
                 table.insert(messages, {
                     role = "tool",
@@ -507,7 +588,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
         local followUpMessages
         if ctx then
             followUpMessages = ctx:getMessagesForAPI(systemPrompt, {
-                includeReasoningContent = isDeepSeek
+                includeReasoningContent = isDeepSeek,
+                pruneToolMessages = true,
+                keepRecentToolMessages = 4
             })
         else
             followUpMessages = messages
@@ -578,7 +661,9 @@ function AIClient:chat(userMessage, systemPrompt, options)
         local finalMessages
         if ctx then
             finalMessages = ctx:getMessagesForAPI(systemPrompt, {
-                includeReasoningContent = isDeepSeek
+                includeReasoningContent = isDeepSeek,
+                pruneToolMessages = true,
+                keepRecentToolMessages = 4
             })
         else
             finalMessages = messages
@@ -795,67 +880,35 @@ end
 function AIClient:analyzeResources(query, resourceContext, options)
     local Config = getDeps()  -- 获取配置，其他依赖在chat中获取
     
-    local systemPrompt = [[You are a Roblox game analysis expert. You have access to tools to search and read game resources.
+    local systemPrompt = [[You are a Roblox game analysis expert.
 
-CRITICAL - TOOL USAGE:
-You MUST use the provided function tools to interact with the game. DO NOT output tool calls as code or text.
-- When you need to search/read game data, CALL the appropriate tool function
-- DO NOT write "search_resources(...)" as text - this will NOT work
-- The tools are actual API functions you can call, not code examples
-- Example: To find remotes, call search_resources tool with query parameter
+Rules:
+1. Use function tools when game data is needed. Never print fake tool calls as text.
+2. Keep tool use efficient. Prefer 1-3 focused calls, avoid repeating the same search.
+3. After tool results, answer directly in Chinese with analysis, not just raw listings.
+4. When generating Lua, keep it safe for gameplay: use spawn/task.defer for heavy work, batch large loops with task.wait(), avoid tight infinite loops.
+5. If generating executable code, stop after the code so the user can confirm or ask for edits.
 
-IMPORTANT RULES:
-1. Use tools efficiently - limit to 3-4 tool calls max before responding
-2. Don't repeat the same search multiple times
-3. After getting tool results, ALWAYS analyze them and provide a complete answer to the user's question
-4. DO NOT just list search results - explain what they mean and how to use them
-5. If you can't find something after 2 searches, tell the user
-
-CODE GENERATION RULES (防止游戏卡顿):
-1. 使用 spawn() 或 task.defer() 包装耗时操作，避免阻塞主线程
-2. 大量数据操作使用 task.wait() 分批处理，每100个元素暂停一次
-3. 避免无限循环，必须使用 while true 时添加 wait() 或 task.wait()
-4. 遍历大量对象时使用 pcall 保护并设置超时
-5. 修改大量实例属性时，分帧执行或使用 RunService.Heartbeat
-6. 复杂脚本建议分步执行，每次只做一件事
-
-CODE EXECUTION RULES (重要):
-1. 生成代码后，等待用户确认执行，不要继续生成更多代码
-2. 如果用户提出修改建议，只生成修改后的代码，不要再添加额外优化
-3. 代码生成后立即停止，让用户有机会确认或修改
-4. 不要在用户确认前提供"进一步优化"或"改进建议"
-
-Good example:
-```lua
-spawn(function()
-    for i, obj in ipairs(objects) do
-        -- 处理逻辑
-        if i % 100 == 0 then task.wait() end  -- 分批处理
-    end
-end)
-```
-
-Bad example (会卡死游戏):
-```lua
-for i, obj in ipairs(objects) do
-    -- 处理逻辑 (没有任何yield点)
-end
-```
-
-Available tools (CALL these functions, DO NOT output as text):
+Available tools:
 - search_resources: Search by name/type (use specific keywords)
 - read_script: Read script source code
 - save_script: Save script or executor file to executor path
+- list_saved_scripts: List cached AI-generated scripts
+- get_saved_script: Read a cached AI-generated script
+- save_temp_script: Save or update a cached script
+- run_saved_script: Execute a cached script directly
 - list_remotes: List remotes
 - get_remote_info: Get Remote details
 - analyze_remote_usage: Find scripts that reference a remote
 - call_remote: Call a remote directly
 - remote_interceptor: Start/stop/status remote interception
+- inspect_resource_folder: Inspect a folder/container resource tree
+- inspect_ui_resources: Inspect HUD/UI tree and properties
 - list_resources: List all resources of a type
 - search_in_script: Search text/code inside scripts
 - get_console_output: Read console output logs
 
-Be concise. Generate working Lua code when asked. Respond in Chinese.]]
+Be concise. Respond in Chinese.]]
 
     local contextSummary = ""
     if resourceContext then
@@ -880,6 +933,8 @@ Be concise. Generate working Lua code when asked. Respond in Chinese.]]
         userMessage = query
     end
 
+    options = options or {}
+    options.selectedToolNames = selectToolNamesForQuery(query)
     return self:chat(userMessage, systemPrompt, options)
 end
 

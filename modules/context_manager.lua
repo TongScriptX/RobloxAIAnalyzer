@@ -45,11 +45,23 @@ local MODEL_LIMITS = {
     ["default"] = 32768
 }
 
--- 压缩阈值（参考 Claude Code：85% 触发压缩）
-local COMPRESS_THRESHOLD = 0.85
+-- 压缩阈值：提前压缩，减少上下文继续膨胀
+local COMPRESS_THRESHOLD = 0.75
 
 -- 工具输出最大字符数（超出则截断，保留头尾）
-local TOOL_OUTPUT_MAX_CHARS = 30000
+local TOOL_OUTPUT_MAX_CHARS = 6000
+local TOOL_OUTPUT_LIMITS = {
+    read_script = 12000,
+    get_saved_script = 10000,
+    search_in_script = 5000,
+    inspect_resource_folder = 5000,
+    inspect_ui_resources = 5000,
+    list_resources = 3000,
+    search_resources = 3000,
+    list_saved_scripts = 2500,
+    list_remotes = 2500,
+    get_console_output = 3500,
+}
 
 local function toSafeText(value)
     if value == nil then
@@ -210,14 +222,15 @@ function ContextManager:addAssistantMessage(content, toolCalls)
 end
 
 -- 添加工具结果（超长输出自动截断，保留头尾）
-function ContextManager:addToolResult(toolCallId, content)
+function ContextManager:addToolResult(toolCallId, content, toolName)
     local text = tostring(content or "")
-    if #text > TOOL_OUTPUT_MAX_CHARS then
-        local head = text:sub(1, TOOL_OUTPUT_MAX_CHARS * 0.6)
-        local tail = text:sub(-math.floor(TOOL_OUTPUT_MAX_CHARS * 0.3))
+    local limit = TOOL_OUTPUT_LIMITS[toolName] or TOOL_OUTPUT_MAX_CHARS
+    if #text > limit then
+        local head = text:sub(1, math.floor(limit * 0.7))
+        local tail = text:sub(-math.floor(limit * 0.2))
         text = head .. "\n...[output truncated]...\n" .. tail
     end
-    return self:addMessage("tool", text, { tool_call_id = toolCallId })
+    return self:addMessage("tool", text, { tool_call_id = toolCallId, tool_name = toolName })
 end
 
 -- 获取使用率
@@ -433,6 +446,9 @@ local function sanitizeMessage(msg, options)
     if msg.tool_call_id then
         clean.tool_call_id = tostring(msg.tool_call_id)
     end
+    if msg.tool_name then
+        clean.name = tostring(msg.tool_name)
+    end
     -- assistant 消息的 tool_calls
     if msg.tool_calls then
         clean.tool_calls = {}
@@ -456,6 +472,7 @@ end
 
 -- 获取用于API的消息列表
 function ContextManager:getMessagesForAPI(systemPrompt, options)
+    options = options or {}
     local result = {}
 
     -- 系统提示
@@ -475,8 +492,34 @@ function ContextManager:getMessagesForAPI(systemPrompt, options)
     end
 
     -- 添加对话历史（净化后再加入，防止 JSONEncode 失败）
-    for _, msg in ipairs(self.messages) do
-        table.insert(result, sanitizeMessage(msg, options))
+    local toolIndexes = {}
+    for i, msg in ipairs(self.messages) do
+        if msg.role == "tool" then
+            toolIndexes[#toolIndexes + 1] = i
+        end
+    end
+
+    local keepRecentToolMessages = tonumber(options.keepRecentToolMessages) or 4
+    local recentToolStart = math.max(1, #toolIndexes - keepRecentToolMessages + 1)
+    local recentToolLookup = {}
+    for i = recentToolStart, #toolIndexes do
+        if toolIndexes[i] then
+            recentToolLookup[toolIndexes[i]] = true
+        end
+    end
+
+    for i, msg in ipairs(self.messages) do
+        local clean = sanitizeMessage(msg, options)
+        if options.pruneToolMessages and msg.role == "tool" and not recentToolLookup[i] then
+            local original = tostring(msg.content or "")
+            local preview = original:gsub("%s+", " "):sub(1, 320)
+            clean.content = string.format("[tool_result_compacted name=%s chars=%d] %s",
+                tostring(msg.tool_name or "tool"),
+                #original,
+                preview
+            )
+        end
+        table.insert(result, clean)
     end
 
     return result

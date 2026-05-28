@@ -270,6 +270,7 @@ function App:init()
         {name = "Tools", path = "modules/tools.lua", key = "Tools", required = false},
         {name = "ContextManager", path = "modules/context_manager.lua", key = "ContextManager", required = false},
         {name = "SessionManager", path = "modules/session_manager.lua", key = "SessionManager", required = false},
+        {name = "ScriptLibrary", path = "modules/script_library.lua", key = "ScriptLibrary", required = false},
         {name = "AIClient", path = "modules/ai_client.lua", key = "AIClient", required = true},
     }
     
@@ -452,6 +453,32 @@ function App:refreshSessionSidebar(selectedId)
     else
         ui:setSessionPreview(nil, {})
     end
+end
+
+function App:autoStoreGeneratedScripts(text, sourceTag)
+    local ScriptLibrary = _G.AIAnalyzer.ScriptLibrary
+    if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
+        return {}
+    end
+
+    local stored = {}
+    local index = 0
+    for language, code in tostring(text or ""):gmatch("```([%w_-]*)\n(.-)```") do
+        local lang = tostring(language or ""):lower()
+        if lang == "" or lang == "lua" or lang == "luau" then
+            index = index + 1
+            local title = string.format("AI脚本_%s_%02d", os.date("%m%d_%H%M%S"), index)
+            local script, err = ScriptLibrary:saveScript(title, code, {
+                source = sourceTag or "ai_response",
+                sessionId = self.currentSessionId,
+                description = "AI 自动暂存的脚本"
+            })
+            if script then
+                table.insert(stored, script)
+            end
+        end
+    end
+    return stored
 end
 
 function App:createNewSession()
@@ -826,6 +853,7 @@ function App:setupCallbacks()
                     ui:showConfirmationPrompt(aiResult.description, aiResult.code or aiResult.codePreview)
                 elseif aiResult and aiResult.content then
                     ui:addMessage(aiResult.content, false, aiResult.reasoning)
+                    self:autoStoreGeneratedScripts(aiResult.content, "execute_feedback")
                     if aiResult.usage then ui:updateTokenDisplay(aiResult.usage) end
                     local ctx = _G.AIAnalyzer.ContextManager and _G.AIAnalyzer.ContextManager.getInstance()
                     if ctx then ui:updateContextStatus(ctx:getStatus()) end
@@ -1231,6 +1259,7 @@ function App:confirmScriptExecution()
                 
                 if aiResult and aiResult.content then
                     ui:addMessage(aiResult.content, false, aiResult.reasoning)
+                    self:autoStoreGeneratedScripts(aiResult.content, "confirm_followup")
                     if aiResult.usage then
                         ui:updateTokenDisplay(aiResult.usage)
                     end
@@ -1295,6 +1324,7 @@ function App:cancelScriptExecution()
                 
                 if aiResult and aiResult.content then
                     ui:addMessage(aiResult.content, false, aiResult.reasoning)
+                    self:autoStoreGeneratedScripts(aiResult.content, "cancel_followup")
                     self:saveCurrentSession()
                 end
             end
@@ -1424,6 +1454,7 @@ function App:sendToAI(query)
             if result then
                 -- 传递思考过程（如果存在）
                 ui:addMessage(result.content, false, result.reasoning)
+                self:autoStoreGeneratedScripts(result.content, "chat_response")
                 if result.usage then
                     ui:updateTokenDisplay(result.usage)
                 end

@@ -235,6 +235,158 @@ Tools.definitions = {
     {
         type = "function",
         ["function"] = {
+            name = "inspect_resource_folder",
+            description = "查看某个文件夹/容器内的资源结构，返回层级树、子节点统计和详细格式化结果。适合分析 Workspace、ReplicatedStorage 下的某个目录。",
+            parameters = {
+                type = "object",
+                properties = {
+                    name = {
+                        type = "string",
+                        description = "文件夹或容器的名称/路径，例如 ReplicatedStorage.Remotes 或 Workspace.Game"
+                    },
+                    max_depth = {
+                        type = "integer",
+                        description = "最大递归深度，默认3，最大6"
+                    },
+                    max_children = {
+                        type = "integer",
+                        description = "每层最多展示的子节点数量，默认25，最大60"
+                    }
+                },
+                required = {"name"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "list_saved_scripts",
+            description = "列出 AI 之前生成并自动暂存的脚本。可按标题过滤，便于后续直接修改或调用，而不必重新生成。",
+            parameters = {
+                type = "object",
+                properties = {
+                    query = {
+                        type = "string",
+                        description = "可选：按标题或描述过滤"
+                    },
+                    limit = {
+                        type = "integer",
+                        description = "返回数量限制，默认20"
+                    }
+                },
+                required = {}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "get_saved_script",
+            description = "读取已暂存的 AI 脚本内容，可直接查看、修改或交给 run_script 执行。",
+            parameters = {
+                type = "object",
+                properties = {
+                    name = {
+                        type = "string",
+                        description = "脚本 id 或标题"
+                    },
+                    start_line = {
+                        type = "integer",
+                        description = "起始行号（可选，从1开始）"
+                    },
+                    end_line = {
+                        type = "integer",
+                        description = "结束行号（可选）"
+                    }
+                },
+                required = {"name"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "save_temp_script",
+            description = "保存或覆盖临时脚本库中的脚本。适合把修改后的脚本重新暂存，供后续继续调用。",
+            parameters = {
+                type = "object",
+                properties = {
+                    name = {
+                        type = "string",
+                        description = "脚本标题；若与现有脚本匹配则更新，否则新建"
+                    },
+                    content = {
+                        type = "string",
+                        description = "脚本源码"
+                    },
+                    description = {
+                        type = "string",
+                        description = "可选描述"
+                    }
+                },
+                required = {"name", "content"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "run_saved_script",
+            description = "直接执行临时脚本库中的脚本，无需再次生成代码。",
+            parameters = {
+                type = "object",
+                properties = {
+                    name = {
+                        type = "string",
+                        description = "脚本 id 或标题"
+                    },
+                    description = {
+                        type = "string",
+                        description = "可选：执行描述"
+                    },
+                    risk_level = {
+                        type = "string",
+                        enum = {"low", "medium", "high"},
+                        description = "风险等级，默认 medium"
+                    }
+                },
+                required = {"name"}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
+            name = "inspect_ui_resources",
+            description = "查看页面 HUD、PlayerGui、StarterGui、CoreGui 等 UI 资源结构及关键信息，例如 Visible、Enabled、Text、Image。",
+            parameters = {
+                type = "object",
+                properties = {
+                    scope = {
+                        type = "string",
+                        enum = {"playergui", "startergui", "coregui", "all"},
+                        description = "查看范围，默认 playergui"
+                    },
+                    query = {
+                        type = "string",
+                        description = "可选：按 UI 名称过滤"
+                    },
+                    max_depth = {
+                        type = "integer",
+                        description = "最大递归深度，默认3，最大6"
+                    },
+                    max_children = {
+                        type = "integer",
+                        description = "每层最多展示数量，默认30，最大80"
+                    }
+                },
+                required = {}
+            }
+        }
+    },
+    {
+        type = "function",
+        ["function"] = {
             name = "list_resources",
             description = "列出游戏内所有可访问的资源，按类型分组。返回资源摘要列表。",
             parameters = {
@@ -584,6 +736,14 @@ function Tools:execute(toolName, args, context)
 
     elseif toolName == "save_script" then
         return self:saveScriptToFile(args, Reader, Scanner, Executor)
+    elseif toolName == "list_saved_scripts" then
+        return self:listSavedScripts(args)
+    elseif toolName == "get_saved_script" then
+        return self:getSavedScript(args)
+    elseif toolName == "save_temp_script" then
+        return self:saveTempScript(args)
+    elseif toolName == "run_saved_script" then
+        return self:runSavedScript(args)
 
     elseif toolName == "list_remotes" then
         return self:listRemotes(args, Scanner)
@@ -610,6 +770,10 @@ function Tools:execute(toolName, args, context)
         return self:callRemote(args, Scanner)
     elseif toolName == "remote_interceptor" then
         return self:remoteInterceptorAction(args)
+    elseif toolName == "inspect_resource_folder" then
+        return self:inspectResourceFolder(args, Scanner)
+    elseif toolName == "inspect_ui_resources" then
+        return self:inspectUIResources(args)
     elseif toolName == "list_resources" then
         return self:listResources(args, Scanner)
     elseif toolName == "search_in_script" then
@@ -697,6 +861,154 @@ function Tools:listRemotes(args, Scanner)
         total = #(Scanner.cache.remotes or {}),
         results = results
     }
+end
+
+function Tools:listSavedScripts(args)
+    local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
+    if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
+        return {error = "Script library not available"}
+    end
+
+    local query = tostring(args.query or ""):lower()
+    local limit = math.max(1, math.min(tonumber(args.limit) or 20, 100))
+    local scripts = ScriptLibrary:listScripts()
+    local results = {}
+
+    for _, item in ipairs(scripts) do
+        local title = tostring(item.title or ""):lower()
+        local description = tostring(item.description or ""):lower()
+        if query == "" or title:find(query, 1, true) or description:find(query, 1, true) then
+            table.insert(results, {
+                id = item.id,
+                name = item.title,
+                description = item.description,
+                updatedAt = item.updatedAt,
+                createdAt = item.createdAt
+            })
+            if #results >= limit then
+                break
+            end
+        end
+    end
+
+    return {
+        query = args.query or "",
+        count = #results,
+        total = #scripts,
+        results = results
+    }
+end
+
+function Tools:getSavedScript(args)
+    local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
+    if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
+        return {error = "Script library not available"}
+    end
+
+    local script = ScriptLibrary:getScript(args.name)
+    if not script then
+        return {error = "Saved script not found: " .. tostring(args.name)}
+    end
+
+    local source = script.content or ""
+    local totalLines = 0
+    local lines = {}
+    for line in source:gmatch("[^\n]*") do
+        totalLines = totalLines + 1
+        lines[totalLines] = line
+    end
+
+    if args.start_line or args.end_line then
+        local startLine = args.start_line or 1
+        local endLine = math.min(args.end_line or totalLines, totalLines)
+        local rangeLines = {}
+        for i = startLine, endLine do
+            rangeLines[#rangeLines + 1] = string.format("%4d: %s", i, lines[i] or "")
+        end
+        source = #rangeLines > 0 and table.concat(rangeLines, "\n") or "-- No lines in range"
+        return {
+            name = script.title,
+            type = "saved_ai_script",
+            path = "temp://" .. tostring(script.id),
+            source = source,
+            size = #source,
+            lines = totalLines,
+            savedScriptId = script.id,
+            description = script.description,
+            status = "success",
+            statusIcon = "✓",
+            lineRange = {
+                start = startLine,
+                end_ = endLine,
+                total = totalLines
+            }
+        }
+    end
+
+    return {
+        name = script.title,
+        type = "saved_ai_script",
+        path = "temp://" .. tostring(script.id),
+        source = source,
+        size = #source,
+        lines = totalLines,
+        savedScriptId = script.id,
+        description = script.description,
+        status = "success",
+        statusIcon = "✓"
+    }
+end
+
+function Tools:saveTempScript(args)
+    local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
+    if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
+        return {error = "Script library not available"}
+    end
+
+    local existing = ScriptLibrary:getScript(args.name)
+    local saved, err
+    if existing then
+        saved, err = ScriptLibrary:updateScript(existing.id, args.content, args.name, {
+            description = args.description,
+            source = "tool_save_temp_script"
+        })
+    else
+        saved, err = ScriptLibrary:saveScript(args.name, args.content, {
+            description = args.description,
+            source = "tool_save_temp_script"
+        })
+    end
+
+    if not saved then
+        return {error = "Failed to save temp script: " .. tostring(err)}
+    end
+
+    return {
+        success = true,
+        id = saved.id,
+        name = saved.title,
+        description = saved.description,
+        updatedAt = saved.updatedAt,
+        bytes = #(saved.content or "")
+    }
+end
+
+function Tools:runSavedScript(args)
+    local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
+    if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
+        return {error = "Script library not available"}
+    end
+
+    local script = ScriptLibrary:getScript(args.name)
+    if not script then
+        return {error = "Saved script not found: " .. tostring(args.name)}
+    end
+
+    return self:runScript({
+        code = script.content or "",
+        description = args.description or ("运行临时脚本: " .. tostring(script.title)),
+        risk_level = args.risk_level or "medium"
+    })
 end
 
 -- 读取脚本源码
@@ -1235,6 +1547,269 @@ function Tools:listResources(args, Scanner)
     return result
 end
 
+local function findObjectByNameOrPath(Scanner, name)
+    if not Scanner or not Scanner.cache or not name then
+        return nil
+    end
+
+    local nameLower = tostring(name):lower()
+    local bestMatch, bestScore
+
+    for _, obj in ipairs(Scanner.cache.objects or {}) do
+        local objName = (obj.name or ""):lower()
+        local objPath = (obj.path or ""):lower()
+        local score = 0
+
+        if objPath == nameLower then
+            score = 300
+        elseif objName == nameLower then
+            score = 200
+        elseif objPath:find(nameLower, 1, true) then
+            score = 100
+        elseif objName:find(nameLower, 1, true) then
+            score = 60
+        end
+
+        if score > 0 and (not bestScore or score > bestScore) then
+            bestMatch = obj
+            bestScore = score
+        end
+    end
+
+    return bestMatch
+end
+
+local function inspectFolderNode(instance, currentDepth, maxDepth, maxChildren, outLines, stats)
+    if currentDepth > maxDepth then
+        return
+    end
+
+    local children = instance:GetChildren()
+    table.sort(children, function(a, b)
+        if #a:GetChildren() > 0 and #b:GetChildren() == 0 then
+            return true
+        elseif #a:GetChildren() == 0 and #b:GetChildren() > 0 then
+            return false
+        end
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    stats.totalNodes = stats.totalNodes + #children
+    stats.maxBreadth = math.max(stats.maxBreadth, #children)
+
+    local shown = math.min(#children, maxChildren)
+    for i = 1, shown do
+        local child = children[i]
+        local childCount = #child:GetChildren()
+        local indent = string.rep("  ", currentDepth)
+        local marker = childCount > 0 and "📁" or "•"
+        outLines[#outLines + 1] = string.format("%s%s %s [%s]%s",
+            indent,
+            marker,
+            child.Name,
+            child.ClassName,
+            childCount > 0 and (" {" .. childCount .. "}") or ""
+        )
+        stats.typeCounts[child.ClassName] = (stats.typeCounts[child.ClassName] or 0) + 1
+        if childCount > 0 and currentDepth < maxDepth then
+            inspectFolderNode(child, currentDepth + 1, maxDepth, maxChildren, outLines, stats)
+        end
+    end
+
+    if #children > maxChildren then
+        outLines[#outLines + 1] = string.format("%s... 还有 %d 个子节点未展开", string.rep("  ", currentDepth), #children - maxChildren)
+    end
+end
+
+function Tools:inspectResourceFolder(args, Scanner)
+    local name = args.name
+    if not name or name == "" then
+        return {error = "Folder name required"}
+    end
+    if not Scanner or not Scanner.cache then
+        return {error = "Scanner not initialized"}
+    end
+
+    local target = findObjectByNameOrPath(Scanner, name)
+    if not target or not target.instance then
+        return {error = "Folder not found: " .. tostring(name)}
+    end
+
+    local instance = target.instance
+    local childCount = #instance:GetChildren()
+    if childCount == 0 then
+        return {
+            name = target.name,
+            type = target.className,
+            path = target.path,
+            maxDepth = 0,
+            maxChildren = 0,
+            totalNodes = 0,
+            tree = {},
+            typeSummary = {}
+        }
+    end
+
+    local maxDepth = math.max(1, math.min(tonumber(args.max_depth) or 3, 6))
+    local maxChildren = math.max(1, math.min(tonumber(args.max_children) or 25, 60))
+    local lines = {}
+    local stats = {
+        totalNodes = 0,
+        maxBreadth = 0,
+        typeCounts = {}
+    }
+
+    inspectFolderNode(instance, 1, maxDepth, maxChildren, lines, stats)
+
+    local typeSummary = {}
+    for className, count in pairs(stats.typeCounts) do
+        table.insert(typeSummary, {type = className, count = count})
+    end
+    table.sort(typeSummary, function(a, b)
+        if a.count == b.count then
+            return a.type < b.type
+        end
+        return a.count > b.count
+    end)
+
+    return {
+        name = target.name,
+        type = target.className,
+        path = target.path,
+        rootChildren = childCount,
+        maxDepth = maxDepth,
+        maxChildren = maxChildren,
+        totalNodes = stats.totalNodes,
+        maxBreadth = stats.maxBreadth,
+        tree = lines,
+        typeSummary = typeSummary
+    }
+end
+
+local function appendUIPropertyBits(instance, bits)
+    if instance:IsA("ScreenGui") then
+        bits[#bits + 1] = "Enabled=" .. tostring(instance.Enabled)
+    elseif instance:IsA("GuiObject") then
+        bits[#bits + 1] = "Visible=" .. tostring(instance.Visible)
+    end
+
+    if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+        local text = tostring(instance.Text or ""):gsub("%s+", " ")
+        if text ~= "" then
+            bits[#bits + 1] = "Text=" .. text:sub(1, 24)
+        end
+    end
+
+    if instance:IsA("ImageLabel") or instance:IsA("ImageButton") then
+        if tostring(instance.Image or "") ~= "" then
+            bits[#bits + 1] = "Image=true"
+        end
+    end
+end
+
+local function walkUINode(instance, query, currentDepth, maxDepth, maxChildren, outLines, stats)
+    if currentDepth > maxDepth then
+        return
+    end
+
+    local children = {}
+    for _, child in ipairs(instance:GetChildren()) do
+        if child:IsA("GuiObject") or child:IsA("LayerCollector") then
+            if query == "" or child.Name:lower():find(query, 1, true) then
+                children[#children + 1] = child
+            elseif currentDepth < maxDepth then
+                children[#children + 1] = child
+            end
+        end
+    end
+
+    table.sort(children, function(a, b)
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    local shown = math.min(#children, maxChildren)
+    stats.totalNodes = stats.totalNodes + #children
+    for i = 1, shown do
+        local child = children[i]
+        local bits = {}
+        appendUIPropertyBits(child, bits)
+        stats.typeCounts[child.ClassName] = (stats.typeCounts[child.ClassName] or 0) + 1
+        outLines[#outLines + 1] = string.format("%s• %s [%s]%s",
+            string.rep("  ", currentDepth),
+            child.Name,
+            child.ClassName,
+            #bits > 0 and (" {" .. table.concat(bits, ", ") .. "}") or ""
+        )
+        if currentDepth < maxDepth then
+            walkUINode(child, query, currentDepth + 1, maxDepth, maxChildren, outLines, stats)
+        end
+    end
+
+    if #children > maxChildren then
+        outLines[#outLines + 1] = string.format("%s... 还有 %d 个 UI 子节点未展开", string.rep("  ", currentDepth), #children - maxChildren)
+    end
+end
+
+function Tools:inspectUIResources(args)
+    local Players = game:GetService("Players")
+    local StarterGui = game:GetService("StarterGui")
+    local CoreGui = game:GetService("CoreGui")
+    local player = Players.LocalPlayer
+    local query = tostring(args.query or ""):lower()
+    local maxDepth = math.max(1, math.min(tonumber(args.max_depth) or 3, 6))
+    local maxChildren = math.max(1, math.min(tonumber(args.max_children) or 30, 80))
+    local scope = tostring(args.scope or "playergui"):lower()
+
+    local roots = {}
+    if scope == "playergui" or scope == "all" then
+        if player and player:FindFirstChild("PlayerGui") then
+            roots[#roots + 1] = player.PlayerGui
+        end
+    end
+    if scope == "startergui" or scope == "all" then
+        roots[#roots + 1] = StarterGui
+    end
+    if scope == "coregui" or scope == "all" then
+        roots[#roots + 1] = CoreGui
+    end
+
+    if #roots == 0 then
+        return {error = "No UI roots available for scope: " .. scope}
+    end
+
+    local tree = {}
+    local typeCounts = {}
+    local totalNodes = 0
+    for _, root in ipairs(roots) do
+        tree[#tree + 1] = string.format("📁 %s [%s]", root.Name, root.ClassName)
+        local stats = { totalNodes = 0, typeCounts = {} }
+        walkUINode(root, query, 1, maxDepth, maxChildren, tree, stats)
+        totalNodes = totalNodes + stats.totalNodes
+        for className, count in pairs(stats.typeCounts) do
+            typeCounts[className] = (typeCounts[className] or 0) + count
+        end
+    end
+
+    local summary = {}
+    for className, count in pairs(typeCounts) do
+        summary[#summary + 1] = {type = className, count = count}
+    end
+    table.sort(summary, function(a, b)
+        if a.count == b.count then return a.type < b.type end
+        return a.count > b.count
+    end)
+
+    return {
+        uiScope = scope,
+        query = args.query or "",
+        totalNodes = totalNodes,
+        maxDepth = maxDepth,
+        maxChildren = maxChildren,
+        tree = tree,
+        typeSummary = summary
+    }
+end
+
 -- 在脚本中搜索文本
 function Tools:searchInScript(args, Reader, Scanner)
     local searchText = args.text
@@ -1566,6 +2141,17 @@ function Tools:formatResult(result)
             end
         end
     elseif result.results then
+        if result.results[1] and result.results[1].id and result.results[1].name and result.total then
+            parts[#parts + 1] = string.format("Saved scripts (%d/%d):", result.count or #result.results, result.total or #result.results)
+            for i, item in ipairs(result.results) do
+                if i > 15 then
+                    parts[#parts + 1] = "... more saved scripts omitted"
+                    break
+                end
+                parts[#parts + 1] = string.format("  • %s [%s] %s", item.name, item.id, item.updatedAt or "")
+            end
+            return table.concat(parts, "\n")
+        end
         parts[#parts + 1] = string.format("Found %d results:", result.count)
         for i, r in ipairs(result.results) do
             if i > 10 then
@@ -1580,6 +2166,12 @@ function Tools:formatResult(result)
         end
         parts[#parts + 1] = string.format("Script: %s (%s)", result.name, result.type)
         parts[#parts + 1] = string.format("Path: %s", result.path)
+        if result.savedScriptId then
+            parts[#parts + 1] = string.format("Saved Script ID: %s", result.savedScriptId)
+        end
+        if result.description and result.description ~= "" then
+            parts[#parts + 1] = string.format("Description: %s", result.description)
+        end
         
         -- 显示行范围信息
         if result.lineRange then
@@ -1623,6 +2215,64 @@ function Tools:formatResult(result)
             end
         end
         parts[#parts + 1] = string.format("Total objects scanned: %d", result.totalObjects or 0)
+    elseif result.id and result.name and result.bytes then
+        parts[#parts + 1] = "✅ 临时脚本已保存"
+        parts[#parts + 1] = string.format("Name: %s", result.name)
+        parts[#parts + 1] = string.format("ID: %s", result.id)
+        if result.description and result.description ~= "" then
+            parts[#parts + 1] = string.format("Description: %s", result.description)
+        end
+        parts[#parts + 1] = string.format("Size: %d bytes", result.bytes)
+        parts[#parts + 1] = string.format("Updated: %s", result.updatedAt or "")
+    elseif result.tree then
+        if result.uiScope then
+            parts[#parts + 1] = string.format("UI Scope: %s", result.uiScope)
+            if result.query and result.query ~= "" then
+                parts[#parts + 1] = string.format("Query: %s", result.query)
+            end
+            parts[#parts + 1] = string.format("UI Nodes: %d | Max depth: %d | Per-level limit: %d",
+                result.totalNodes or 0,
+                result.maxDepth or 0,
+                result.maxChildren or 0
+            )
+            if result.typeSummary and #result.typeSummary > 0 then
+                parts[#parts + 1] = "UI type summary:"
+                for i, item in ipairs(result.typeSummary) do
+                    if i > 12 then
+                        parts[#parts + 1] = "  ... more types omitted"
+                        break
+                    end
+                    parts[#parts + 1] = string.format("  • %s x%d", item.type, item.count)
+                end
+            end
+            parts[#parts + 1] = "UI Tree:"
+            for _, line in ipairs(result.tree) do
+                parts[#parts + 1] = line
+            end
+            return table.concat(parts, "\n")
+        end
+        parts[#parts + 1] = string.format("Folder: %s [%s]", result.name or "Unknown", result.type or "Unknown")
+        parts[#parts + 1] = string.format("Path: %s", result.path or "")
+        parts[#parts + 1] = string.format("Root children: %d | Expanded nodes: %d | Max depth: %d | Per-level limit: %d",
+            result.rootChildren or 0,
+            result.totalNodes or 0,
+            result.maxDepth or 0,
+            result.maxChildren or 0
+        )
+        if result.typeSummary and #result.typeSummary > 0 then
+            parts[#parts + 1] = "Type summary:"
+            for i, item in ipairs(result.typeSummary) do
+                if i > 12 then
+                    parts[#parts + 1] = "  ... more types omitted"
+                    break
+                end
+                parts[#parts + 1] = string.format("  • %s x%d", item.type, item.count)
+            end
+        end
+        parts[#parts + 1] = "Tree:"
+        for _, line in ipairs(result.tree) do
+            parts[#parts + 1] = line
+        end
     elseif result.logs then
         -- 控制台输出结果
         parts[#parts + 1] = string.format("📋 控制台日志 (共 %d 条，返回 %d 条)", result.totalLogs, result.returnedLogs)
