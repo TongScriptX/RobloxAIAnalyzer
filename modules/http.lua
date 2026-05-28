@@ -207,7 +207,13 @@ local function sanitizeForJSON(v, depth)
     if depth > 20 then return "[too deep]" end
     local t = type(v)
     if t == "string" then
-        return v
+        -- 去除 JSONEncode 易失败的控制字符，保留常见换行/制表
+        local ok, cleaned = pcall(function()
+            local s = v
+            s = s:gsub("[%z\1-\8\11\12\14-\31]", "")
+            return s
+        end)
+        return ok and cleaned or tostring(v)
     elseif t == "number" then
         -- JSONEncode 不支持 NaN / infinity
         if v ~= v or v == math.huge or v == -math.huge then
@@ -241,11 +247,25 @@ end
 function Http:jsonRequest(url, method, data, headers)
     local bodyData = ""
     if data then
+        local sanitized = sanitizeForJSON(data)
         local ok, encoded = pcall(function()
-            return game:GetService("HttpService"):JSONEncode(sanitizeForJSON(data))
+            return game:GetService("HttpService"):JSONEncode(sanitized)
         end)
         if not ok then
             warn("[HTTP] JSONEncode failed: " .. tostring(encoded))
+            if type(sanitized) == "table" then
+                local msgCount = sanitized.messages and #sanitized.messages or 0
+                local toolCount = sanitized.tools and #sanitized.tools or 0
+                warn(string.format("[HTTP] JSONEncode context: messages=%d tools=%d model=%s",
+                    msgCount,
+                    toolCount,
+                    tostring(sanitized.model)
+                ))
+                if sanitized.messages and sanitized.messages[msgCount] then
+                    local last = sanitized.messages[msgCount]
+                    warn("[HTTP] Last message role=" .. tostring(last.role) .. " name=" .. tostring(last.name) .. " content=" .. tostring(last.content):sub(1, 200))
+                end
+            end
             return { statusCode = 0, body = "", headers = {}, success = false, error = "JSONEncode failed: " .. tostring(encoded) }
         end
         bodyData = encoded

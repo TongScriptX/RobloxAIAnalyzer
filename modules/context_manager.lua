@@ -518,6 +518,8 @@ function ContextManager:getMessagesForAPI(systemPrompt, options)
                 #original,
                 preview
             )
+        elseif msg.role == "tool" then
+            clean.content = tostring(clean.content or ""):gsub("[%z\1-\8\11\12\14-\31]", "")
         end
         table.insert(result, clean)
     end
