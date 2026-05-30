@@ -10,6 +10,106 @@ Tools.resourceCache = {
     searches = {},   -- [query_lower] = {count, results}
 }
 
+local function firstNonEmptyString(...)
+    for i = 1, select("#", ...) do
+        local value = select(i, ...)
+        if type(value) == "string" and value ~= "" then
+            return value
+        end
+    end
+    return nil
+end
+
+local function firstNonNil(...)
+    for i = 1, select("#", ...) do
+        local value = select(i, ...)
+        if value ~= nil then
+            return value
+        end
+    end
+    return nil
+end
+
+function Tools:normalizeArgs(args)
+    args = type(args) == "table" and args or {}
+    local normalized = {}
+
+    for key, value in pairs(args) do
+        normalized[key] = value
+    end
+
+    normalized.name = firstNonEmptyString(
+        normalized.name,
+        normalized.script_name,
+        normalized.script,
+        normalized.path,
+        normalized.file_path,
+        normalized.folder,
+        normalized.folder_name,
+        normalized.folder_path,
+        normalized.resource,
+        normalized.resource_name,
+        normalized.id,
+        normalized.title
+    ) or normalized.name
+
+    normalized.output_path = firstNonEmptyString(
+        normalized.output_path,
+        normalized.output,
+        normalized.outputPath,
+        normalized.path_out,
+        normalized.save_path,
+        normalized.target_path,
+        normalized.target
+    ) or normalized.output_path
+
+    normalized.content = firstNonEmptyString(
+        normalized.content,
+        normalized.code,
+        normalized.source,
+        normalized.script_content
+    ) or normalized.content
+
+    normalized.description = firstNonEmptyString(
+        normalized.description,
+        normalized.desc,
+        normalized.summary
+    ) or normalized.description
+
+    normalized.query = firstNonEmptyString(
+        normalized.query,
+        normalized.keyword,
+        normalized.search,
+        normalized.filter
+    ) or normalized.query
+
+    normalized.start_line = firstNonNil(normalized.start_line, normalized.startLine, normalized.from_line, normalized.line_start)
+    normalized.end_line = firstNonNil(normalized.end_line, normalized.endLine, normalized.to_line, normalized.line_end)
+    normalized.max_depth = firstNonNil(normalized.max_depth, normalized.maxDepth, normalized.depth)
+    normalized.max_children = firstNonNil(normalized.max_children, normalized.maxChildren, normalized.children_limit)
+    normalized.limit = firstNonNil(normalized.limit, normalized.max_results, normalized.count)
+
+    return normalized
+end
+
+function Tools:toolError(message, fix, exampleArgs)
+    local result = {
+        error = message,
+        fix = fix,
+        retryable = true
+    }
+
+    if exampleArgs then
+        result.example_args = exampleArgs
+    end
+
+    if fix and fix ~= "" then
+        result.error = string.format("%s | Fix: %s", tostring(message), tostring(fix))
+    end
+
+    return result
+end
+
 -- 清空资源缓存（新对话时调用）
 function Tools:clearCache()
     self.resourceCache = { scripts = {}, remotes = {}, searches = {} }
@@ -79,7 +179,7 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "read_script",
-            description = "读取指定脚本的源代码。可以读取完整脚本或指定行范围。返回脚本源码和读取状态。使用@前缀读取注入器文件系统中的文件（如 @workspace/script.lua）。",
+            description = "读取指定脚本的源代码。优先使用参数 name，兼容 script_name/path/file_path。可以读取完整脚本或指定行范围。返回脚本源码和读取状态。使用@前缀读取注入器文件系统中的文件（如 @workspace/script.lua）。",
             parameters = {
                 type = "object",
                 properties = {
@@ -104,7 +204,7 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "save_script",
-            description = "将游戏内脚本或执行器文件保存到注入器指定路径。支持把 read_script 读取到的内容直接落盘。",
+            description = "将游戏内脚本或执行器文件保存到注入器指定路径。优先使用 name 和 output_path，兼容 script_name/path 与 output/outputPath/save_path。支持把 read_script 读取到的内容直接落盘。",
             parameters = {
                 type = "object",
                 properties = {
@@ -236,7 +336,7 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "inspect_resource_folder",
-            description = "查看某个文件夹/容器内的资源结构，返回层级树、子节点统计和详细格式化结果。适合分析 Workspace、ReplicatedStorage 下的某个目录。",
+            description = "查看某个文件夹/容器内的资源结构，返回层级树、子节点统计和详细格式化结果。优先使用参数 name，兼容 folder/folder_name/folder_path/path。适合分析 Workspace、ReplicatedStorage 下的某个目录。",
             parameters = {
                 type = "object",
                 properties = {
@@ -282,7 +382,7 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "get_saved_script",
-            description = "读取已暂存的 AI 脚本内容，可直接查看、修改或交给 run_script 执行。",
+            description = "读取已暂存的 AI 脚本内容，可直接查看、修改或交给 run_script 执行。优先使用参数 name，兼容 id/title。",
             parameters = {
                 type = "object",
                 properties = {
@@ -307,7 +407,7 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "save_temp_script",
-            description = "保存或覆盖临时脚本库中的脚本。适合把修改后的脚本重新暂存，供后续继续调用。",
+            description = "保存或覆盖临时脚本库中的脚本。适合把修改后的脚本重新暂存，供后续继续调用。优先使用参数 name 和 content，兼容 title 与 code/source。",
             parameters = {
                 type = "object",
                 properties = {
@@ -332,7 +432,7 @@ Tools.definitions = {
         type = "function",
         ["function"] = {
             name = "run_saved_script",
-            description = "直接执行临时脚本库中的脚本，无需再次生成代码。",
+            description = "直接执行临时脚本库中的脚本，无需再次生成代码。优先使用参数 name，兼容 id/title。",
             parameters = {
                 type = "object",
                 properties = {
@@ -703,6 +803,7 @@ function Tools:execute(toolName, args, context)
     local Scanner = context.Scanner
     local Reader = context.Reader
     local Executor = context.Executor
+    args = self:normalizeArgs(args)
 
     if toolName == "search_resources" then
         -- 缓存：相同 query+type 直接返回
@@ -784,7 +885,10 @@ function Tools:execute(toolName, args, context)
         return self:getConsoleOutput(args)
     end
     
-    return {error = "Unknown tool: " .. toolName}
+    return self:toolError(
+        "Unknown tool: " .. tostring(toolName),
+        "Use one of the declared tool names exactly as provided by the tool list."
+    )
 end
 
 -- 搜索资源
@@ -866,7 +970,10 @@ end
 function Tools:listSavedScripts(args)
     local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
     if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
-        return {error = "Script library not available"}
+        return self:toolError(
+            "Script library not available",
+            "Do not call saved-script tools until the executor supports readfile and writefile."
+        )
     end
 
     local query = tostring(args.query or ""):lower()
@@ -902,12 +1009,19 @@ end
 function Tools:getSavedScript(args)
     local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
     if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
-        return {error = "Script library not available"}
+        return self:toolError(
+            "Script library not available",
+            "Do not call saved-script tools until the executor supports readfile and writefile."
+        )
     end
 
     local script = ScriptLibrary:getScript(args.name)
     if not script then
-        return {error = "Saved script not found: " .. tostring(args.name)}
+        return self:toolError(
+            "Saved script not found: " .. tostring(args.name),
+            "Call list_saved_scripts first, then retry get_saved_script with an existing id or exact title.",
+            { name = "example_script_id_or_title" }
+        )
     end
 
     local source = script.content or ""
@@ -962,7 +1076,10 @@ end
 function Tools:saveTempScript(args)
     local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
     if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
-        return {error = "Script library not available"}
+        return self:toolError(
+            "Script library not available",
+            "Do not call save_temp_script until the executor supports readfile and writefile."
+        )
     end
 
     local existing = ScriptLibrary:getScript(args.name)
@@ -980,7 +1097,10 @@ function Tools:saveTempScript(args)
     end
 
     if not saved then
-        return {error = "Failed to save temp script: " .. tostring(err)}
+        return self:toolError(
+            "Failed to save temp script: " .. tostring(err),
+            "Retry with non-empty content and a short name/title. If updating, first call list_saved_scripts to confirm the target script."
+        )
     end
 
     return {
@@ -996,12 +1116,19 @@ end
 function Tools:runSavedScript(args)
     local ScriptLibrary = _G.AIAnalyzer and _G.AIAnalyzer.ScriptLibrary
     if not ScriptLibrary or not ScriptLibrary.canPersist or not ScriptLibrary:canPersist() then
-        return {error = "Script library not available"}
+        return self:toolError(
+            "Script library not available",
+            "Do not call run_saved_script until the executor supports readfile and writefile."
+        )
     end
 
     local script = ScriptLibrary:getScript(args.name)
     if not script then
-        return {error = "Saved script not found: " .. tostring(args.name)}
+        return self:toolError(
+            "Saved script not found: " .. tostring(args.name),
+            "Call list_saved_scripts first, then retry run_saved_script with an existing id or exact title.",
+            { name = "example_script_id_or_title" }
+        )
     end
 
     return self:runScript({
@@ -1018,7 +1145,11 @@ function Tools:readScript(args, Reader, Scanner, Executor)
     local endLine = args.end_line
     
     if not name then
-        return {error = "Script name required"}
+        return self:toolError(
+            "Script name required",
+            "Retry read_script with `name`. For executor files use `@path/to/file.lua`; for in-game scripts use script name or full path.",
+            { name = "StarterPlayer.StarterPlayerScripts.Main" }
+        )
     end
     
     -- 检测 @ 前缀，表示注入器文件系统中的文件
@@ -1026,16 +1157,25 @@ function Tools:readScript(args, Reader, Scanner, Executor)
         local filePath = name:sub(2)  -- 移除 @ 前缀
         
         if not Executor or not Executor.readfile then
-            return {error = "File reading not supported by executor"}
+            return self:toolError(
+                "File reading not supported by executor",
+                "Do not use @file-path reading on this executor. Retry with an in-game script name/path, or switch to an executor that supports readfile."
+            )
         end
         
         local success, content = pcall(Executor.readfile, filePath)
         if not success then
-            return {error = "Failed to read file: " .. tostring(content)}
+            return self:toolError(
+                "Failed to read file: " .. tostring(content),
+                "Verify the @file path exists and retry with the exact executor file path."
+            )
         end
         
         if not content then
-            return {error = "File not found or empty: " .. filePath}
+            return self:toolError(
+                "File not found or empty: " .. filePath,
+                "Retry with an existing executor file path prefixed by @, for example `@workspace/test.lua`."
+            )
         end
         
         -- 计算行数
@@ -1090,7 +1230,10 @@ function Tools:readScript(args, Reader, Scanner, Executor)
     
     -- 游戏内脚本读取
     if not Reader or not Reader:canDecompile() then
-        return {error = "Script reading not available (need getscriptbytecode + external HTTP access)"}
+        return self:toolError(
+            "Script reading not available (need getscriptbytecode + external HTTP access)",
+            "Do not retry read_script for in-game scripts until bytecode reading and external HTTP decompile support are available."
+        )
     end
     
     -- 先查找脚本
@@ -1185,17 +1328,28 @@ function Tools:readScript(args, Reader, Scanner, Executor)
         end
     end
     
-    return {error = "Script not found: " .. name}
+    return self:toolError(
+        "Script not found: " .. tostring(name),
+        "Retry with a more exact script name or full path. If unsure, call search_resources with `resource_type: script` first.",
+        { query = tostring(name), resource_type = "script" }
+    )
 end
 
 function Tools:saveScriptToFile(args, Reader, Scanner, Executor)
     local outputPath = args.output_path
     if not outputPath or outputPath == "" then
-        return {error = "Output path required"}
+        return self:toolError(
+            "Output path required",
+            "Retry save_script with both `name` and `output_path`. Example output path: `AICli/output/test.lua`.",
+            { name = "StarterPlayer.StarterPlayerScripts.Main", output_path = "AICli/output/test.lua" }
+        )
     end
 
     if not Executor or not Executor.writefile then
-        return {error = "File writing not supported by executor"}
+        return self:toolError(
+            "File writing not supported by executor",
+            "Do not call save_script until the executor supports writefile."
+        )
     end
 
     local scriptData = self:readScript(args, Reader, Scanner, Executor)
@@ -1205,7 +1359,10 @@ function Tools:saveScriptToFile(args, Reader, Scanner, Executor)
 
     local success, writeErr = pcall(Executor.writefile, outputPath, scriptData.source or "")
     if not success then
-        return {error = "Failed to save script: " .. tostring(writeErr)}
+        return self:toolError(
+            "Failed to save script: " .. tostring(writeErr),
+            "Verify the output_path directory is writable and retry with a valid executor file path such as `AICli/output/test.lua`."
+        )
     end
 
     return {
@@ -1225,11 +1382,17 @@ end
 function Tools:getRemoteInfo(args, Scanner)
     local name = args.name
     if not name then
-        return {error = "Remote name required"}
+        return self:toolError(
+            "Remote name required",
+            "Retry with `name`. If unsure, call list_remotes first and then use one returned remote name/path."
+        )
     end
     
     if not Scanner or not Scanner.cache then
-        return {error = "Scanner not initialized"}
+        return self:toolError(
+            "Scanner not initialized",
+            "Refresh or rescan game resources before retrying this tool."
+        )
     end
     
     local nameLower = name:lower()
@@ -1250,7 +1413,11 @@ function Tools:getRemoteInfo(args, Scanner)
         end
     end
     
-    return {error = "Remote not found: " .. name}
+    return self:toolError(
+        "Remote not found: " .. tostring(name),
+        "Call list_remotes first, then retry with an exact remote name or full path.",
+        { query = tostring(name), limit = 20 }
+    )
 end
 
 local function findRemoteInstance(Scanner, name)
@@ -1287,15 +1454,24 @@ end
 function Tools:analyzeRemoteUsage(args, Reader, Scanner)
     local name = args.name
     if not name or name == "" then
-        return {error = "Remote name required"}
+        return self:toolError(
+            "Remote name required",
+            "Retry with `name`. If unsure, call list_remotes first."
+        )
     end
     if not Reader or not Reader:canDecompile() then
-        return {error = "Script reading not available"}
+        return self:toolError(
+            "Script reading not available",
+            "Do not retry analyze_remote_usage until script decompile support is available."
+        )
     end
 
     local remote = findRemoteInstance(Scanner, name)
     if not remote then
-        return {error = "Remote not found: " .. tostring(name)}
+        return self:toolError(
+            "Remote not found: " .. tostring(name),
+            "Call list_remotes first, then retry with an exact remote name or full path."
+        )
     end
 
     local usageByName = self:searchInScript({
@@ -1374,12 +1550,18 @@ end
 function Tools:callRemote(args, Scanner)
     local name = args.name
     if not name or name == "" then
-        return {error = "Remote name required"}
+        return self:toolError(
+            "Remote name required",
+            "Retry with `name`. If unsure, call list_remotes first."
+        )
     end
 
     local remoteInfo = findRemoteInstance(Scanner, name)
     if not remoteInfo or not remoteInfo.instance then
-        return {error = "Remote not found: " .. tostring(name)}
+        return self:toolError(
+            "Remote not found: " .. tostring(name),
+            "Call list_remotes first, then retry call_remote with an exact remote name/path."
+        )
     end
 
     local decodedArgs, decodeErr = decodeRemoteArguments(args.arguments_json)
@@ -1510,7 +1692,10 @@ function Tools:listResources(args, Scanner)
     local limit = args.limit or 20
     
     if not Scanner or not Scanner.cache then
-        return {error = "Scanner not initialized"}
+        return self:toolError(
+            "Scanner not initialized",
+            "Refresh or rescan game resources before retrying this tool."
+        )
     end
     
     local result = {}
@@ -1624,15 +1809,26 @@ end
 function Tools:inspectResourceFolder(args, Scanner)
     local name = args.name
     if not name or name == "" then
-        return {error = "Folder name required"}
+        return self:toolError(
+            "Folder name required",
+            "Retry inspect_resource_folder with `name`. If unsure, first call search_resources or list_resources to discover the exact folder/container path.",
+            { name = "ReplicatedStorage.Remotes", max_depth = 3, max_children = 25 }
+        )
     end
     if not Scanner or not Scanner.cache then
-        return {error = "Scanner not initialized"}
+        return self:toolError(
+            "Scanner not initialized",
+            "Refresh or rescan game resources before retrying this tool."
+        )
     end
 
     local target = findObjectByNameOrPath(Scanner, name)
     if not target or not target.instance then
-        return {error = "Folder not found: " .. tostring(name)}
+        return self:toolError(
+            "Folder not found: " .. tostring(name),
+            "Retry with a more exact folder/container name or full path. If unsure, call search_resources first.",
+            { query = tostring(name), resource_type = "all" }
+        )
     end
 
     local instance = target.instance
